@@ -1,24 +1,27 @@
-# apps/web — Frontend Application (React + Vite)
+# apps/web — Frontend Application (React + Vite + Tailwind CSS)
 
-Direktori ini diperuntukkan bagi aplikasi klien antarmuka pengguna berbasis **React 18+, TypeScript, Vite, dan Tailwind CSS**.
+Direktori ini memuat antarmuka pengguna berbasis **React 18+, TypeScript, Vite, dan Tailwind CSS**.
 
-## Status Saat Ini (Phase 0)
-- **Status**: Kerangka direktori awal telah disiapkan.
-- **Implementasi**: Belum ada kode antarmuka yang diaktifkan. Inisialisasi tooling dan dependensi akan dijalankan pada **Phase 1 & Phase 7**.
+## Status Saat Ini (Phase 1)
+- **Status**: Tooling dan kerangka aplikasi telah aktif.
+- **Implementasi**:
+  - Halaman placeholder netral *"Wallet App — scaffold"* untuk membuktikan build dan dev server.
+  - Tailwind CSS terkonfigurasi dengan design tokens tema fintech (`tailwind.config.js`).
+  - Vite dev server dengan proxy `/api` ke backend service (`vite.config.ts`).
+  - Testing menggunakan Vitest + React Testing Library + JSDOM dengan smoke test render.
+  - Interkoneksi monorepo diverifikasi lewat impor `@wallet-app/shared`.
 
-## Panduan Arsitektur Direktori (Rencana)
-```text
-src/
-├── app/         # Inisialisasi provider (QueryClient, AuthContext, Theme)
-├── routes/      # Definisi rute React Router (Public, Private, Admin)
-├── layouts/     # Layout template (AuthLayout, DashboardLayout)
-├── features/    # Modul fitur bisnis (auth, wallet, transactions, transfers, budgets, admin)
-├── components/  # Komponen UI bersama (Button, Modal, Input, Card, Table)
-├── hooks/       # Custom React hooks (useAuth, useDebounce, useMediaQuery)
-├── services/    # Klien HTTP Axios / TanStack Query hooks
-├── lib/         # Utilitas lokal & konfigurasi pustaka (axiosInstance, formatters)
-├── types/       # Definisi tipe khusus frontend
-└── styles/      # Styling global Tailwind CSS & design tokens
+## Perintah Eksekusi
+```bash
+# Menjalankan frontend dalam mode development
+pnpm --filter @wallet-app/web dev
+
+# Menjalankan typecheck
+pnpm --filter @wallet-app/web typecheck
+
+# Menjalankan test runner
+pnpm --filter @wallet-app/web test
+
+# Membangun bundle produksi
+pnpm --filter @wallet-app/web build
 ```
-
-Rujuk dokumen spesifikasi: [FRONTEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/FRONTEND_GUIDELINES.md).

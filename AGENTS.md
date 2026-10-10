@@ -39,3 +39,12 @@ Sebelum menjalankan tugas apa pun, baca dokumen terkait berikut:
    - **Hasil Validasi**: Bukti tes/verifikasi yang dijalankan.
    - **Status Requirement**: ID requirement yang terpengaruh dan status terbarunya.
    - **Langkah Berikutnya**: Apa yang perlu dilakukan selanjutnya sesuai [IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+
+## 6. Perintah Standar & Lokasi Konfigurasi
+- **Install & Tooling**: `pnpm install` | Lokasi root: [package.json](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/package.json), [pnpm-workspace.yaml](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/pnpm-workspace.yaml), [tsconfig.base.json](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/tsconfig.base.json).
+- **Kualitas Kode**: `pnpm typecheck` | `pnpm lint` ([eslint.config.mjs](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/eslint.config.mjs)) | `pnpm format:check` ([.prettierrc](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.prettierrc)).
+- **Pengujian**: `pnpm test` (menjalankan Vitest di seluruh workspace paket).
+- **Build**: `pnpm build` (shared $\rightarrow$ api $\rightarrow$ web).
+- **Development**: `pnpm dev` (paralel) | `pnpm dev:api` (port 5000) | `pnpm dev:web` (port 5173).
+- **Database Dev**: `pnpm db:up` | `pnpm db:down` | `pnpm db:logs` ([infrastructure/docker-compose.yml](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/infrastructure/docker-compose.yml)).
+- **Environment**: [.env.example](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.env.example) disalin ke `.env` lokal (terdaftar di [.gitignore](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.gitignore)).

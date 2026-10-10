@@ -1,11 +1,28 @@
-# infrastructure — Local Development & Deployment Infrastructure
+# infrastructure — Local Development Infrastructure
 
-Direktori ini memuat konfigurasi orkestrasi infrastruktur pendukung aplikasi Wallet App, khususnya untuk pengembangan lokal dan pengujian.
+Direktori ini memuat orkestrasi Docker Compose khusus untuk **PostgreSQL Local Development & Testing**.
 
-## Status Saat Ini (Phase 0)
-- **Status**: Kerangka direktori awal telah disiapkan.
-- **Implementasi**: Belum ada Dockerfile atau docker-compose kompleks yang diaktifkan. Konfigurasi orkestrasi PostgreSQL lokal akan disiapkan pada fase berikutnya sesuai [IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+> ⚠️ **PERINGATAN**: Konfigurasi ini HANYA diperuntukkan bagi lingkungan pengembangan lokal. Dilarang menggunakan kredensial default untuk lingkungan produksi.
 
-## Rencana Isi Direktori
-- `docker-compose.yml`: Container PostgreSQL terisolasi untuk database development dan testing lokal.
-- `init-scripts/`: Skrip inisialisasi basis data (ekstensi uuid-ossp, pgcrypto).
+## Konfigurasi Service
+- **Engine**: PostgreSQL `16.8-alpine` (versi dipin)
+- **Container Name**: `wallet_app_postgres_dev`
+- **Volume Bernama**: `wallet_app_pg_data` (data persisten lokal)
+- **Port**: `5432` (atau sesuai konfigurasi `DB_PORT` di `.env`)
+- **Healthcheck**: Terintegrasi menggunakan `pg_isready`
+
+## Perintah Operasional Database
+Dari root workspace:
+```bash
+# Menjalankan container PostgreSQL di latar belakang
+pnpm db:up
+
+# Mematikan container PostgreSQL
+pnpm db:down
+
+# Melihat log streaming database
+pnpm db:logs
+
+# Reset total volume database (HAPUS DATA LOKAL):
+docker compose -f infrastructure/docker-compose.yml down -v
+```

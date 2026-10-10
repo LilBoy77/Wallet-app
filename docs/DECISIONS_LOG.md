@@ -15,6 +15,12 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 | **ADR-006** | 2026-10-11 | Kebijakan Soft Delete pada Entitas Tertentu | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
 | **ADR-007** | 2026-10-11 | Strategi Penyimpanan & Validasi Upload Lampiran | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
 | **ADR-008** | 2026-10-11 | Standar Format Kontrak REST API & Error Envelope | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
+| **ADR-009** | 2026-10-11 | Standarisasi Versi Runtime Node.js (v24 LTS) & pnpm (v10.15.1) | `accepted` | [.nvmrc](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.nvmrc) |
+| **ADR-010** | 2026-10-11 | Standardisasi Linting & Formatter (ESLint Flat Config + Prettier) | `accepted` | [eslint.config.mjs](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/eslint.config.mjs) |
+| **ADR-011** | 2026-10-11 | Validasi Lingkungan Fail-Fast dengan Zod di Backend | `accepted` | [apps/api/src/config/env.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/config/env.ts) |
+| **ADR-012** | 2026-10-11 | Dev Server Proxy Frontend ke Backend API (Vite Proxy) | `accepted` | [apps/web/vite.config.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/web/vite.config.ts) |
+| **ADR-013** | 2026-10-11 | Pinning Versi Image PostgreSQL (postgres:16.8-alpine) | `accepted` | [infrastructure/docker-compose.yml](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/infrastructure/docker-compose.yml) |
+| **ADR-014** | 2026-10-11 | Pemilihan Development Runner (tsx) dan Test Runner (Vitest) | `accepted` | [package.json](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/package.json) |
 
 ---
 
@@ -123,4 +129,52 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
   - Gagal: `{ "success": false, "error": { "code": string, "message": string, "details": any } }`
 - **Alasan**: Mempermudah pembuatan interceptor respon pada frontend, penyusunan skema Swagger, dan penanganan error terpusat.
 - **Dampak**: Seluruh controller backend wajib mematuhi format envelope ini.
+- **Status**: `accepted`
+
+---
+
+### ADR-009: Standarisasi Versi Runtime Node.js (v24 LTS) & pnpm (v10.15.1)
+- **Konteks**: Diperlukan konsistensi versi runtime dan package manager di seluruh lingkungan pengembang dan CI.
+- **Keputusan**: Menggunakan **Node.js v24.19.0** (didokumentasikan di `.nvmrc` dan `package.json` engines `>=20.0.0`) dan **pnpm 10.15.1** (`packageManager: "pnpm@10.15.1"`).
+- **Alasan**: Sesuai dengan lingkungan aktual lokal terpasang; Node v24 memberikan performa V8 mutakhir dan native ESM yang stabil.
+- **Status**: `accepted`
+
+---
+
+### ADR-010: Standardisasi Linting & Formatter (ESLint Flat Config + Prettier)
+- **Konteks**: Memastikan konsistensi penulisan kode TypeScript di seluruh paket monorepo.
+- **Keputusan**: Menggunakan **ESLint v9 Flat Config (`eslint.config.mjs`)** dipadukan dengan `@typescript-eslint` dan **Prettier v3**. Berkas dokumentasi Markdown dikecualikan dari Prettier melalui `.prettierignore` agar tata letak tabel spesifikasi tidak rusak.
+- **Alasan**: Flat config adalah standar resmi ESLint modern; Prettier menjamin format whitespace dan semikolon otomatis.
+- **Status**: `accepted`
+
+---
+
+### ADR-011: Validasi Lingkungan Fail-Fast dengan Zod di Backend
+- **Konteks**: Server backend tidak boleh berjalan dengan konfigurasi environment yang hilang atau tidak valid untuk mencegah error runtime tersembunyi.
+- **Keputusan**: Memvalidasi seluruh `process.env` menggunakan skema **Zod** saat proses booting di `apps/api/src/config/env.ts`.
+- **Alasan**: Gagal-cepat (*fail-fast*) dengan pesan kesalahan terstruktur memudahkan debugging dan mencegah kebocoran koneksi salah.
+- **Status**: `accepted`
+
+---
+
+### ADR-012: Dev Server Proxy Frontend ke Backend API (Vite Proxy)
+- **Konteks**: Saat development lokal, frontend (port 5173) dan backend (port 5000) berjalan pada origin terpisah.
+- **Keputusan**: Mengonfigurasi **dev proxy di `apps/web/vite.config.ts`** yang memetakan prefix `/api` ke target backend (`http://localhost:5000`).
+- **Alasan**: Meniadakan kerumitan CORS pada permintaan API lokal dan menyelaraskan path rute antara lokal dan produksi.
+- **Status**: `accepted`
+
+---
+
+### ADR-013: Pinning Versi Image PostgreSQL (postgres:16.8-alpine)
+- **Konteks**: Database development lokal memerlukan image yang konsisten dan ringan.
+- **Keputusan**: Mem-pin image Docker PostgreSQL ke versi spesifik **`postgres:16.8-alpine`** di `infrastructure/docker-compose.yml`.
+- **Alasan**: Menghindari anomali *breaking changes* akibat update otomatis tag `latest` dan memanfaatkan footprint minimal dari distro Alpine.
+- **Status**: `accepted`
+
+---
+
+### ADR-014: Pemilihan Development Runner (tsx) dan Test Runner (Vitest)
+- **Konteks**: Diperlukan alat eksekusi live watch backend yang cepat dan test runner yang terintegrasi mulus dengan Vite/ESM.
+- **Keputusan**: Menggunakan **`tsx watch`** untuk server dev backend dan **Vitest** untuk pengujian unit/integrasi di frontend dan backend.
+- **Alasan**: `tsx` mendukung native TypeScript ESM tanpa perlu build terpisah; Vitest berbagi pipeline transformasi yang sama dengan Vite sehingga pengujian berjalan sangat cepat.
 - **Status**: `accepted`

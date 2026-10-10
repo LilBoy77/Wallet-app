@@ -3,15 +3,31 @@
   "version": "0.1.0",
   "private": true,
   "description": "Full-stack personal finance and internal wallet management application",
+  "packageManager": "pnpm@10.15.1",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
   },
   "scripts": {
     "dev": "pnpm --parallel --filter \"@wallet-app/*\" dev",
+    "dev:web": "pnpm --filter @wallet-app/web dev",
+    "dev:api": "pnpm --filter @wallet-app/api dev",
     "build": "pnpm --recursive --filter \"@wallet-app/*\" build",
-    "lint": "pnpm --recursive lint",
-    "test": "pnpm --recursive test"
+    "typecheck": "pnpm --recursive --filter \"@wallet-app/*\" typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --recursive --filter \"@wallet-app/*\" test",
+    "db:up": "docker compose -f infrastructure/docker-compose.yml up -d",
+    "db:down": "docker compose -f infrastructure/docker-compose.yml down",
+    "db:logs": "docker compose -f infrastructure/docker-compose.yml logs -f"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "eslint": "^9.20.1",
+    "prettier": "^3.5.0",
+    "typescript": "^5.7.3"
+  }
 }

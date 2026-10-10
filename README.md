@@ -4,9 +4,10 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 
 ---
 
-> ### ⚠️ PEMBERITAHUAN STATUS PROYEK (FASE 0)
-> **Status Saat Ini: Phase 0 — AI Foundation & Project Governance**.  
-> Pada fase ini, repositori **hanya memuat spesifikasi arsitektur, dokumen tata kelola, dan struktur kerangka kerja**. **Fitur bisnis, database produksi, endpoint API aktif, dan antarmuka pengguna BELUM diimplementasikan**. Semua proses pengembangan fitur akan dijalankan secara bertahap sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+> ### 🛠️ STATUS PROYEK: PHASE 1 COMPLETED (Monorepo Bootstrap & Tooling Active)
+> **Status Saat Ini: Phase 1 — Project Bootstrap, Environment, & Tooling (Selesai)**.  
+> Repositori telah dilengkapi kerangka monorepo pnpm aktif, build system TypeScript, linter ESLint, formatter Prettier, unit testing Vitest, Express server dengan endpoint `/health`, web scaffold Vite + Tailwind, serta orkestrasi Docker Compose PostgreSQL lokal.  
+> **Fitur bisnis dan skema database belum diimplementasikan** (akan dibangun di Phase 2 dst sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md)).
 
 ---
 
@@ -72,10 +73,43 @@ Seluruh rincian perancangan dapat diakses melalui tautan berikut:
 - **Pedoman Kode & Pengujian**: [FRONTEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/FRONTEND_GUIDELINES.md), [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md), [TESTING_STRATEGY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/TESTING_STRATEGY.md)
 - **Manajemen Eksekusi**: [IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md), [DEFINITION_OF_DONE.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DEFINITION_OF_DONE.md), [AI_WORKFLOW.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AI_WORKFLOW.md), [DECISIONS_LOG.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DECISIONS_LOG.md)
 
-## 5. Rencana Pengaturan Lokal (Rencana Pasca-Fase 0)
-Pengaturan lokal akan dilakukan pada **Phase 1** setelah tooling diinisialisasi. Rencana umum langkah eksekusi:
-1. Menyalin environment file: `cp .env.example .env`
-2. Instalasi dependensi: `pnpm install` (dijalankan pada Phase 1)
-3. Menjalankan database PostgreSQL via Docker atau instalasi lokal.
-4. Menjalankan migrasi database & seeder.
-5. Menjalankan server pengembangan: `pnpm dev`
+## 5. Panduan Menjalankan Proyek (Setup & Operasional)
+Ikuti langkah berikut untuk menjalankan repositori secara lokal:
+
+### Prasyarat
+- **Node.js**: $\ge 20.0.0$ (disarankan v24 LTS sesuai `.nvmrc`)
+- **pnpm**: $\ge 9.0.0$ (menggunakan `pnpm@10.15.1`)
+- **Docker & Docker Compose**: Untuk PostgreSQL lokal
+
+### Langkah Setup & Eksekusi
+```bash
+# 1. Salin template konfigurasi environment
+cp .env.example .env
+
+# 2. Pasang seluruh dependensi monorepo
+pnpm install
+
+# 3. Jalankan container database PostgreSQL lokal
+pnpm db:up
+
+# 4. Verifikasi kualitas kode & typecheck
+pnpm typecheck
+pnpm lint
+pnpm format:check
+
+# 5. Jalankan suite pengujian unit & integrasi
+pnpm test
+
+# 6. Kompilasi bundle produksi seluruh paket
+pnpm build
+
+# 7. Menjalankan server pengembangan:
+# Menjalankan API backend saja (port 5000):
+pnpm dev:api
+
+# Menjalankan Web frontend saja (port 5173):
+pnpm dev:web
+
+# Atau menjalankan keduanya secara paralel:
+pnpm dev
+```

@@ -1,24 +1,28 @@
 # apps/api — Backend REST API Service (Node.js + Express + TypeScript)
 
-Direktori ini diperuntukkan bagi layanan backend RESTful API berbasis **Node.js, Express.js, TypeScript, dan PostgreSQL**.
+Direktori ini memuat layanan backend RESTful API berbasis **Node.js, Express.js, TypeScript, dan PostgreSQL**.
 
-## Status Saat Ini (Phase 0)
-- **Status**: Kerangka direktori awal telah disiapkan.
-- **Implementasi**: Belum ada server aktif atau endpoint bisnis yang berjalan. Inisialisasi dependensi dan implementasi dimulai pada **Phase 1, 2, dan 3**.
+## Status Saat Ini (Phase 1)
+- **Status**: Fondasi server dan kerangka teknis telah aktif.
+- **Implementasi**:
+  - Validasi environment fail-fast dengan Zod (`src/config/env.ts`).
+  - Pemisahan `app.ts` (factory aplikasi Express) dan `server.ts` (listener + graceful shutdown).
+  - Middleware: JSON parser (limit 1MB), Helmet, CORS dengan origin env spesifik, logging tersanitasi (tanpa mencatat authorization/cookies).
+  - Endpoint infrastruktur: `GET /health` mengembalikan status service dan versi `@wallet-app/shared`.
+  - Format 404 handler dan global error handler seragam sesuai [docs/API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md).
+  - Pengujian Vitest + Supertest untuk endpoint `/health`, penanganan 404, dan validasi env.
 
-## Panduan Arsitektur Direktori (Rencana)
-```text
-src/
-├── config/       # Validasi env (Zod) dan konfigurasi aplikasi
-├── middlewares/  # Error handler, auth JWT, RBAC guard, rate limiter, upload
-├── modules/      # Modul domain (auth, users, wallets, transactions, transfers, categories, budgets, attachments, admin)
-│   └── [domain]/ # routes, controllers, services, repositories, schemas
-├── database/     # Migrasi, seeder, dan koneksi PostgreSQL pool / ORM
-└── shared/       # Error classes (AppError), helper response envelope, logger
-tests/
-├── unit/         # Pengujian logika bisnis murni
-├── integration/  # Pengujian endpoint REST API dan transaksi database
-└── fixtures/     # Data uji & mock
+## Perintah Eksekusi
+```bash
+# Menjalankan server dalam mode development (live watch)
+pnpm --filter @wallet-app/api dev
+
+# Menjalankan typecheck
+pnpm --filter @wallet-app/api typecheck
+
+# Menjalankan test runner
+pnpm --filter @wallet-app/api test
+
+# Membangun build produksi
+pnpm --filter @wallet-app/api build
 ```
-
-Rujuk dokumen spesifikasi: [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md) & [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md).

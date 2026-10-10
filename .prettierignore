@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+coverage/
+.pnpm-store/
+*.log
+pnpm-lock.yaml
+*.md
+docs/

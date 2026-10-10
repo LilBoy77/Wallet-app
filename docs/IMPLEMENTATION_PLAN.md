@@ -9,9 +9,9 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ## Ringkasan Status Fase
 | Fase | Nama Fase | Status |
 | :--- | :--- | :--- |
-| **Phase 0** | AI Foundation & Project Governance | **ACTIVE (In Execution)** |
-| **Phase 1** | Monorepo Bootstrap & Tooling Setup | `PENDING` |
-| **Phase 2** | Database Schema, Migration & Seeder | `PENDING` |
+| **Phase 0** | AI Foundation & Project Governance | **COMPLETED** |
+| **Phase 1** | Monorepo Bootstrap & Tooling Setup | **COMPLETED (Verified)** |
+| **Phase 2** | Database Schema, Migration & Seeder | `PENDING (Next Up)` |
 | **Phase 3** | Backend Foundation, Configuration & Error Handling | `PENDING` |
 | **Phase 4** | Authentication, Session, Cookie & RBAC | `PENDING` |
 | **Phase 5** | Wallet, Transaction & Transfer Business Logic | `PENDING` |
