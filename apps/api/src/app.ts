@@ -42,19 +42,26 @@ export function createApp(): Express {
     next();
   });
 
-  // 5. Health Check Endpoint (Infrastructure only)
-  app.get('/health', (_req: Request, res: Response) => {
+  // 5. Health Check Endpoint (Infrastructure with safe DB status)
+  app.get('/health', async (_req: Request, res: Response) => {
+    const { checkDatabaseHealth } = await import('./database/index.js');
+    const dbHealth = await checkDatabaseHealth();
+    const isDegraded = !dbHealth.connected;
     const healthData: HealthCheckPayload = {
-      status: 'ok',
+      status: isDegraded ? 'degraded' : 'ok',
       timestamp: new Date().toISOString(),
       service: '@wallet-app/api',
       version: SHARED_API_VERSION,
+      database: {
+        status: dbHealth.connected ? 'connected' : 'disconnected',
+        latencyMs: dbHealth.latencyMs,
+      },
     };
 
-    res.status(200).json({
-      success: true,
+    res.status(isDegraded ? 503 : 200).json({
+      success: !isDegraded,
       data: healthData,
-      message: 'Service is healthy',
+      message: isDegraded ? 'Service degraded: Database is unreachable' : 'Service is healthy',
     });
   });
 

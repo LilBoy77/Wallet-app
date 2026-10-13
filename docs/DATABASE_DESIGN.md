@@ -32,6 +32,7 @@ erDiagram
         varchar full_name
         varchar role
         boolean is_active
+        boolean is_verified
         timestamp created_at
         timestamp updated_at
         timestamp deleted_at
@@ -182,9 +183,11 @@ erDiagram
 - `full_name`: `VARCHAR(100) NOT NULL`
 - `role`: `VARCHAR(20) NOT NULL DEFAULT 'user'` (CHECK: `role IN ('user', 'admin')`)
 - `is_active`: `BOOLEAN NOT NULL DEFAULT true`
+- `is_verified`: `BOOLEAN NOT NULL DEFAULT true`
 - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `updated_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `deleted_at`: `TIMESTAMPTZ NULL` (Soft Delete)
+- *Constraint*: Partial Unique Indexes: `UNIQUE (LOWER(email)) WHERE deleted_at IS NULL` dan `UNIQUE (LOWER(username)) WHERE deleted_at IS NULL`
 
 ### 2. `wallets` (Tabel Dompet Saldo Internal)
 - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
@@ -309,3 +312,24 @@ Untuk memenuhi persyaratan pengujian dan demonstrasi tugas:
 - `transfers`: Minimal 20 transaksi transfer internal antar-pengguna dengan status sukses.
 - `tags`: Minimal 20 tag kustom (misal: `#makanan`, `#gajian`, `#tagihan`, `#hobi`, `#kopi`).
 - `transaction_tags`: Minimal 20 pemetaan pivot transaksi ke tag.
+
+---
+
+## 7. Perbedaan dari Rancangan Awal (Phase 2 Actual Implementation) `[ACCEPTED]`
+
+Selama implementasi nyata dan pengujian Phase 2, dilakukan penyempurnaan skema yang disengaja berikut demi keamanan dan kepatuhan constraint:
+1. **Penambahan Kolom `users.is_verified`**: Ditambahkan dengan tipe `BOOLEAN NOT NULL DEFAULT true` untuk menyelesaikan rekomendasi `OPEN-PB-01` (akun langsung siap digunakan saat registrasi tanpa hambatan OTP/verifikasi email di fase awal).
+2. **Partial Unique Indexes untuk Soft Delete & Case-Insensitive**:
+   - Pada tabel `users`: alih-alih constraint `UNIQUE` biasa yang akan memblokir email pengguna baru jika ada pengguna lama ber-status soft delete, digunakan Partial Unique Index `UNIQUE (LOWER(email)) WHERE deleted_at IS NULL` dan `UNIQUE (LOWER(username)) WHERE deleted_at IS NULL`.
+   - Pada tabel `categories`: dipisahkan menjadi dua partial index:
+     - Kategori kustom: `UNIQUE (user_id, LOWER(name), type) WHERE deleted_at IS NULL AND user_id IS NOT NULL`
+     - Kategori sistem: `UNIQUE (LOWER(name), type) WHERE deleted_at IS NULL AND user_id IS NULL`
+     Hal ini mencegah bentrok saat membuat kategori kustom dengan nama yang sama setelah kategori lama di-soft delete.
+3. **Penegakan Database Trigger untuk Append-Only Ledger (`wallet_entries`)**:
+   - Dibuat fungsi trigger PostgreSQL `prevent_wallet_entries_mutation()` dan disematkan pada `wallet_entries` (`BEFORE UPDATE` dan `BEFORE DELETE`) untuk menjamin secara absolut bahwa baris mutasi buku besar tidak dapat diubah atau dihapus oleh siapapun.
+4. **Trigger Otomatisasi `updated_at`**:
+   - Fungsi PostgreSQL `set_updated_at_timestamp()` dipasang pada seluruh tabel yang memuat `updated_at` (`users`, `wallets`, `categories`, `budgets`, `transactions`) agar timestamp selalu terbarui secara atomik di tingkat database.
+5. **Constraint Eksplisit Bernama pada `budgets` dan `transfers`**:
+   - `budgets`: ditambahkan `CONSTRAINT uq_budgets_user_category_period UNIQUE (user_id, category_id, start_date, end_date)`.
+   - `transfers`: ditambahkan `CONSTRAINT chk_transfers_different_wallets CHECK (source_wallet_id <> target_wallet_id)`.
+

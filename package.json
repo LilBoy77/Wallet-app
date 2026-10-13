@@ -20,7 +20,13 @@
     "test": "pnpm --recursive --filter \"@wallet-app/*\" test",
     "db:up": "docker compose -f infrastructure/docker-compose.yml up -d",
     "db:down": "docker compose -f infrastructure/docker-compose.yml down",
-    "db:logs": "docker compose -f infrastructure/docker-compose.yml logs -f"
+    "db:logs": "docker compose -f infrastructure/docker-compose.yml logs -f",
+    "db:migrate": "pnpm --filter @wallet-app/api db:migrate",
+    "db:rollback": "pnpm --filter @wallet-app/api db:rollback",
+    "db:status": "pnpm --filter @wallet-app/api db:status",
+    "db:seed": "pnpm --filter @wallet-app/api db:seed",
+    "db:reset": "pnpm --filter @wallet-app/api db:reset",
+    "db:verify": "pnpm --filter @wallet-app/api db:verify"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

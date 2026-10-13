@@ -4,10 +4,10 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 
 ---
 
-> ### 🛠️ STATUS PROYEK: PHASE 1 COMPLETED (Monorepo Bootstrap & Tooling Active)
-> **Status Saat Ini: Phase 1 — Project Bootstrap, Environment, & Tooling (Selesai)**.  
-> Repositori telah dilengkapi kerangka monorepo pnpm aktif, build system TypeScript, linter ESLint, formatter Prettier, unit testing Vitest, Express server dengan endpoint `/health`, web scaffold Vite + Tailwind, serta orkestrasi Docker Compose PostgreSQL lokal.  
-> **Fitur bisnis dan skema database belum diimplementasikan** (akan dibangun di Phase 2 dst sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md)).
+> ### 🛠️ STATUS PROYEK: PHASE 2 COMPLETED (Database Schema, Migration & Seeder Verified)
+> **Status Saat Ini: Phase 2 — Database Schema, Migration, & Seeder (Selesai & Terverifikasi)**.  
+> Seluruh 13 tabel skema PostgreSQL telah diimplementasikan dengan migrasi dua arah (up & down), constraint integritas ketat (CHECK, NOT NULL, soft-delete aware partial unique indexes, append-only triggers pada ledger), seeder deterministik ($\ge 20$ baris per tabel utama dengan saldo dan transfer balance 100% konsisten), serta 25 automated database integration tests.  
+> **Fitur bisnis, endpoint REST API, auth controller, dan UI akan dibangun di Phase 3 dan seterusnya** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
 
 ---
 
@@ -26,9 +26,9 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 | :--- | :--- |
 | **Monorepo** | pnpm workspaces |
 | **Frontend** | React 18+, TypeScript, Vite, Tailwind CSS, React Router v6+, TanStack Query v5, React Hook Form, Zod, Recharts, Lucide Icons |
-| **Backend** | Node.js, Express.js, TypeScript, Zod, Prisma/Knex (query & migration), bcrypt/argon2, jsonwebtoken |
-| **Database** | PostgreSQL (Relasional, migrasi terkelola, seeder minimal 20 data per tabel utama) |
-| **Tools & Dokumen** | Docker, Swagger / OpenAPI v3, Postman Collection, Git |
+| **Backend** | Node.js, Express.js, TypeScript, Zod, pg (Native PostgreSQL Pool & SQL Migrator), bcrypt/argon2, jsonwebtoken |
+| **Database** | PostgreSQL 16+ (Relasional, migrasi terkelola up/down, seeder deterministik $\ge 20$ baris per tabel, append-only ledger) |
+| **Tools & Dokumen** | Docker, Vitest, Swagger / OpenAPI v3, Postman Collection, Git |
 
 ## 3. Struktur Repositori
 ```text
@@ -44,7 +44,7 @@ wallet-app/
 ├── docs/                      # Spesifikasi teknis, arsitektur, dan tata kelola
 │   ├── ASSIGNMENT_SOURCE.md   # Teks tugas asli dan ketentuan dasar
 │   ├── PROJECT_BRIEF.md       # Visi produk, cakupan, dan glosarium
-│   ├── REQUIREMENTS.md        # Daftar spesifikasi terinci (status PLANNED)
+│   ├── REQUIREMENTS.md        # Daftar spesifikasi terinci
 │   ├── ARCHITECTURE.md        # Arsitektur sistem dan diagram
 │   ├── DOMAIN_MODEL.md        # Model domain dan analisis trade-off
 │   ├── DATABASE_DESIGN.md     # Desain database, relasi, constraint, seeder
@@ -59,7 +59,7 @@ wallet-app/
 │   └── DECISIONS_LOG.md       # Rekaman keputusan teknis (ADR)
 ├── apps/
 │   ├── web/                   # Aplikasi Frontend (React + Vite)
-│   └── api/                   # Layanan Backend (Express + TypeScript)
+│   └── api/                   # Layanan Backend (Express + TypeScript + Database Migrations)
 ├── packages/
 │   └── shared/                # Skema Zod, tipe TypeScript, dan utilitas bersama
 └── infrastructure/            # Konfigurasi Docker & infrastruktur lokal
@@ -79,7 +79,7 @@ Ikuti langkah berikut untuk menjalankan repositori secara lokal:
 ### Prasyarat
 - **Node.js**: $\ge 20.0.0$ (disarankan v24 LTS sesuai `.nvmrc`)
 - **pnpm**: $\ge 9.0.0$ (menggunakan `pnpm@10.15.1`)
-- **Docker & Docker Compose**: Untuk PostgreSQL lokal
+- **PostgreSQL**: PostgreSQL 16+ via Docker Compose atau PostgreSQL lokal pada port 5432
 
 ### Langkah Setup & Eksekusi
 ```bash
@@ -89,21 +89,30 @@ cp .env.example .env
 # 2. Pasang seluruh dependensi monorepo
 pnpm install
 
-# 3. Jalankan container database PostgreSQL lokal
+# 3. Jalankan container database PostgreSQL lokal (jika menggunakan Docker)
 pnpm db:up
 
-# 4. Verifikasi kualitas kode & typecheck
+# 4. Jalankan migrasi skema database
+pnpm db:migrate
+
+# 5. Isi database dengan data seed awal (development)
+pnpm db:seed
+
+# 6. Verifikasi konsistensi saldo, transfer, dan ledger
+pnpm db:verify
+
+# 7. Verifikasi kualitas kode, typecheck, dan linter
 pnpm typecheck
 pnpm lint
 pnpm format:check
 
-# 5. Jalankan suite pengujian unit & integrasi
+# 8. Jalankan suite pengujian unit & integrasi (termasuk database constraint test)
 pnpm test
 
-# 6. Kompilasi bundle produksi seluruh paket
+# 9. Kompilasi bundle produksi seluruh paket
 pnpm build
 
-# 7. Menjalankan server pengembangan:
+# 10. Menjalankan server pengembangan:
 # Menjalankan API backend saja (port 5000):
 pnpm dev:api
 
@@ -113,3 +122,16 @@ pnpm dev:web
 # Atau menjalankan keduanya secara paralel:
 pnpm dev
 ```
+
+### Akun Seed Development
+Data seed menyediakan kredensial pengembangan berikut (password di-hash menggunakan bcrypt cost 12):
+
+| Role | Nama | Email | Username | Password (Dev Only) | Saldo Awal |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Admin** | System Administrator | `admin@walletapp.local` | `admin` | `Admin123!` | Rp 50.000.000 |
+| **User** | Budi Santoso | `user01@walletapp.local` | `budisantoso` | `User123!` | Rp 5.000.000 |
+| **User** | Siti Rahmawati | `user02@walletapp.local` | `sitirahma` | `User123!` | Rp 12.500.000 |
+| **User** | Andi Pratama | `user03@walletapp.local` | `andipratama` | `User123!` | Rp 8.200.000 |
+| **User** | Dewi Lestari | `user04@walletapp.local` | `dewilestari` | `User123!` | Rp 15.000.000 |
+| **User** | Eko Prasetyo | `user05@walletapp.local` | `ekoprasetyo` | `User123!` | Rp 3.400.000 |
+| **User** (Soft-deleted) | Deleted User Example | `deleted_user@walletapp.local` | `deleteduser` | `User123!` | Rp 0 |

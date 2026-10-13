@@ -11,8 +11,8 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 | :--- | :--- | :--- |
 | **Phase 0** | AI Foundation & Project Governance | **COMPLETED** |
 | **Phase 1** | Monorepo Bootstrap & Tooling Setup | **COMPLETED (Verified)** |
-| **Phase 2** | Database Schema, Migration & Seeder | `PENDING (Next Up)` |
-| **Phase 3** | Backend Foundation, Configuration & Error Handling | `PENDING` |
+| **Phase 2** | Database Schema, Migration & Seeder | **COMPLETED (Verified)** |
+| **Phase 3** | Backend Foundation, Configuration & Error Handling | `PENDING (Next Up)` |
 | **Phase 4** | Authentication, Session, Cookie & RBAC | `PENDING` |
 | **Phase 5** | Wallet, Transaction & Transfer Business Logic | `PENDING` |
 | **Phase 6** | Categories, Budgets, Attachments & Activity Logs | `PENDING` |
@@ -48,12 +48,13 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ---
 
 ### Phase 2: Database Schema, Migration & Seeder
+- **Status**: **COMPLETED (Verified)**
 - **Tujuan**: Membangun skema database PostgreSQL lengkap dengan migrasi up/down, constraint, index, dan seeder $\ge 20$ data per tabel utama.
 - **Prasyarat**: Phase 1 selesai, koneksi PostgreSQL tersedia.
-- **Hasil**: File migrasi dan seeder untuk tabel `users`, `wallets`, `categories`, `budgets`, `transactions`, `wallet_entries`, `transfers`, `tags`, `transaction_tags`, `attachments`, `activity_logs`, `notifications`.
-- **Dokumen yang Dibaca**: [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md), [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md).
-- **Test yang Harus Lulus**: `pnpm --filter api migrate:latest`, `pnpm --filter api migrate:rollback`, dan `pnpm --filter api seed:run`.
-- **Kriteria Lanjut**: Data seeder terisi $\ge 20$ record per tabel utama dan integritas relasi 1:1, 1:N, N:1, N:N terbukti.
+- **Hasil**: 8 pasang migrasi up/down untuk 13 tabel (`users`, `wallets`, `categories`, `budgets`, `transactions`, `tags`, `transaction_tags`, `attachments`, `transfers`, `wallet_entries`, `refresh_tokens`, `activity_logs`, `notifications`), connection pool `pg`, skrip CLI (`db:migrate`, `db:rollback`, `db:status`, `db:seed`, `db:reset`, `db:verify`), serta 25 integration tests (migration lifecycle, database constraints, soft-delete, append-only ledger trigger, seeder safety guard, data consistency).
+- **Dokumen yang Dibaca**: [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md), [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md), [DECISIONS_LOG.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DECISIONS_LOG.md).
+- **Test yang Lulus**: `pnpm db:migrate`, `pnpm db:rollback --all`, `pnpm db:seed`, `pnpm db:verify`, dan 25 Vitest tests di `apps/api`.
+- **Kriteria Lanjut**: Data seeder terisi $\ge 20$ record per tabel utama dan integritas relasi 1:1, 1:N, N:1, N:N terbukti 100% konsisten.
 
 ---
 

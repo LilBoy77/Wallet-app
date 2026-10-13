@@ -74,30 +74,30 @@ Dokumen ini mendefinisikan seluruh kebutuhan fungsional dan non-fungsional proye
 ## 10. Database Relasional (Minimal $\ge 6$ Tabel Utama)
 | ID | Nama Tabel | Peran Utama | Relasi | Soft Delete? | Kriteria Integritas | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **REQ-DB-01** | `users` | Entitas akun pengguna dan admin | 1:1 ke `wallets`, 1:N ke `categories`, `budgets`, `activity_logs` | Ya (`deleted_at`) | Email & username unik, role enum ('user', 'admin') | `PLANNED` |
-| **REQ-DB-02** | `wallets` | Dompet saldo internal per pengguna | 1:1 ke `users`, 1:N ke `wallet_entries` | Tidak (permanen audit) | Balance integer non-negatif (`balance >= 0`) | `PLANNED` |
-| **REQ-DB-03** | `transactions` | Catatan transaksi pemasukan & pengeluaran | N:1 ke `wallets`, N:1 ke `categories`, 1:N ke `attachments`, N:N ke `tags` via `transaction_tags` | Ya (`deleted_at`) | Amount $> 0$, type enum ('income', 'expense') | `PLANNED` |
-| **REQ-DB-04** | `wallet_entries` | Buku besar (*ledger*) mutasi saldo masuk/keluar | N:1 ke `wallets`, N:1 opsional ke `transactions` & `transfers` | Tidak (immutable ledger) | Entry type ('credit', 'debit'), balance_after | `PLANNED` |
-| **REQ-DB-05** | `transfers` | Rekaman transfer internal antar-dua wallet | N:1 ke `wallets` (source), N:1 ke `wallets` (target) | Tidak (audit log transfer) | Source $\ne$ Target, amount $> 0$, status enum | `PLANNED` |
-| **REQ-DB-06** | `categories` | Klasifikasi transaksi (makanan, gaji, dll.) | N:1 ke `users` (null jika sistem default), 1:N ke `transactions`, `budgets` | Ya (`deleted_at`) | Unik per nama + user_id | `PLANNED` |
-| **REQ-DB-07** | `budgets` | Pagu anggaran per kategori & periode | N:1 ke `users`, N:1 ke `categories` | Tidak | Limit amount $> 0$, periode valid | `PLANNED` |
-| **REQ-DB-08** | `attachments` | File bukti kuitansi/struk transaksi | N:1 ke `transactions` | Tidak | File path & MIME valid | `PLANNED` |
-| **REQ-DB-09** | `tags` & `transaction_tags` | Label kustom transaksi (Relasi N:N) | N:N antara `transactions` dan `tags` melalui tabel pivot `transaction_tags` | Tidak | Composite PK (`transaction_id`, `tag_id`) | `PLANNED` |
-| **REQ-DB-10** | `refresh_tokens`, `activity_logs`, `notifications` | Sesi autentikasi, audit trail, dan pemberitahuan sistem | Berelasi N:1 ke `users` | Tidak | Token hash, index pencarian teroptimasi | `PLANNED` |
+| **REQ-DB-01** | `users` | Entitas akun pengguna dan admin | 1:1 ke `wallets`, 1:N ke `categories`, `budgets`, `activity_logs` | Ya (`deleted_at`) | Email & username unik, role enum ('user', 'admin') | `VERIFIED` |
+| **REQ-DB-02** | `wallets` | Dompet saldo internal per pengguna | 1:1 ke `users`, 1:N ke `wallet_entries` | Tidak (permanen audit) | Balance integer non-negatif (`balance >= 0`) | `VERIFIED` |
+| **REQ-DB-03** | `transactions` | Catatan transaksi pemasukan & pengeluaran | N:1 ke `wallets`, N:1 ke `categories`, 1:N ke `attachments`, N:N ke `tags` via `transaction_tags` | Ya (`deleted_at`) | Amount $> 0$, type enum ('income', 'expense') | `VERIFIED` |
+| **REQ-DB-04** | `wallet_entries` | Buku besar (*ledger*) mutasi saldo masuk/keluar | N:1 ke `wallets`, N:1 opsional ke `transactions` & `transfers` | Tidak (immutable ledger) | Entry type ('credit', 'debit'), balance_after | `VERIFIED` |
+| **REQ-DB-05** | `transfers` | Rekaman transfer internal antar-dua wallet | N:1 ke `wallets` (source), N:1 ke `wallets` (target) | Tidak (audit log transfer) | Source $\ne$ Target, amount $> 0$, status enum | `VERIFIED` |
+| **REQ-DB-06** | `categories` | Klasifikasi transaksi (makanan, gaji, dll.) | N:1 ke `users` (null jika sistem default), 1:N ke `transactions`, `budgets` | Ya (`deleted_at`) | Unik per nama + user_id | `VERIFIED` |
+| **REQ-DB-07** | `budgets` | Pagu anggaran per kategori & periode | N:1 ke `users`, N:1 ke `categories` | Tidak | Limit amount $> 0$, periode valid | `VERIFIED` |
+| **REQ-DB-08** | `attachments` | File bukti kuitansi/struk transaksi | N:1 ke `transactions` | Tidak | File path & MIME valid | `VERIFIED` |
+| **REQ-DB-09** | `tags` & `transaction_tags` | Label kustom transaksi (Relasi N:N) | N:N antara `transactions` dan `tags` melalui tabel pivot `transaction_tags` | Tidak | Composite PK (`transaction_id`, `tag_id`) | `VERIFIED` |
+| **REQ-DB-10** | `refresh_tokens`, `activity_logs`, `notifications` | Sesi autentikasi, audit trail, dan pemberitahuan sistem | Berelasi N:1 ke `users` | Tidak | Token hash, index pencarian teroptimasi | `VERIFIED` |
 
 ## 11. Kardinalitas Relasi (4 Tipe Terpenuhi)
 | ID | Tipe Relasi | Pasangan Entitas | Penjelasan Bisnis Nyata | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **REQ-REL-01** | **1:1 (One-to-One)** | `users` $\leftrightarrow$ `wallets` | Setiap user terdaftar memiliki tepat 1 dompet saldo utama dalam sistem; satu dompet dimiliki tepat satu user | `PLANNED` |
-| **REQ-REL-02** | **1:N (One-to-Many)** | `categories` $\leftrightarrow$ `transactions` | Satu kategori (mis. Makanan) dapat memayungi banyak transaksi pengeluaran; tiap transaksi mengacu ke satu kategori | `PLANNED` |
-| **REQ-REL-03** | **N:1 (Many-to-One)** | `wallet_entries` $\leftrightarrow$ `wallets` | Banyak entri mutasi saldo mengacu pada satu akun dompet pemilik mutasi | `PLANNED` |
-| **REQ-REL-04** | **N:N (Many-to-Many)** | `transactions` $\leftrightarrow$ `tags` (via `transaction_tags`) | Satu transaksi dapat diberi banyak tag (misal: `#liburan`, `#makan_siang`), dan satu tag dapat dilekatkan pada banyak transaksi | `PLANNED` |
+| **REQ-REL-01** | **1:1 (One-to-One)** | `users` $\leftrightarrow$ `wallets` | Setiap user terdaftar memiliki tepat 1 dompet saldo utama dalam sistem; satu dompet dimiliki tepat satu user | `VERIFIED` |
+| **REQ-REL-02** | **1:N (One-to-Many)** | `categories` $\leftrightarrow$ `transactions` | Satu kategori (mis. Makanan) dapat memayungi banyak transaksi pengeluaran; tiap transaksi mengacu ke satu kategori | `VERIFIED` |
+| **REQ-REL-03** | **N:1 (Many-to-One)** | `wallet_entries` $\leftrightarrow$ `wallets` | Banyak entri mutasi saldo mengacu pada satu akun dompet pemilik mutasi | `VERIFIED` |
+| **REQ-REL-04** | **N:N (Many-to-Many)** | `transactions` $\leftrightarrow$ `tags` (via `transaction_tags`) | Satu transaksi dapat diberi banyak tag (misal: `#liburan`, `#makan_siang`), dan satu tag dapat dilekatkan pada banyak transaksi | `VERIFIED` |
 
 ## 12. Soft Delete & Seeder
 | ID | Kategori | Target Tabel | Kriteria Penerimaan | Metode Verifikasi | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **REQ-SD-01** | Soft Delete | `users`, `categories`, `transactions` ($\ge 3$ tabel) | Kolom `deleted_at` terisi timestamp saat dihapus; query default mengabaikan data ber-`deleted_at IS NOT NULL` | Test query filter & retention audit | `PLANNED` |
-| **REQ-SEED-01** | Database Seeder | Seluruh tabel utama (`users`, `wallets`, `categories`, `budgets`, `transactions`, `wallet_entries`, `transfers`, `tags`) | Minimal $\ge 20$ data seed realistis per tabel utama, mencakup relasi yang valid, 1 akun admin default, 5 akun user, dan histori transaksi bervariasi | Eksekusi seeder script & count query | `PLANNED` |
+| **REQ-SD-01** | Soft Delete | `users`, `categories`, `transactions` ($\ge 3$ tabel) | Kolom `deleted_at` terisi timestamp saat dihapus; query default mengabaikan data ber-`deleted_at IS NOT NULL` | `VERIFIED` |
+| **REQ-SEED-01** | Database Seeder | Seluruh tabel utama (`users`, `wallets`, `categories`, `budgets`, `transactions`, `wallet_entries`, `transfers`, `tags`) | Minimal $\ge 20$ data seed realistis per tabel utama, mencakup relasi yang valid, 1 akun admin default, 5 akun user, dan histori transaksi bervariasi | `VERIFIED` |
 
 ## 13. Dokumentasi API, Keamanan & Pengujian
 | ID | Deskripsi Kebutuhan | Prioritas | Komponen | Kriteria Penerimaan | Metode Verifikasi | Status |

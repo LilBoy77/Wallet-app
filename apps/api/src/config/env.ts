@@ -20,6 +20,12 @@ export const envSchema = z.object({
     .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
       message: 'DATABASE_URL must be a valid PostgreSQL connection URL',
     }),
+  TEST_DATABASE_URL: z
+    .string()
+    .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
+      message: 'TEST_DATABASE_URL must be a valid PostgreSQL connection URL',
+    })
+    .default('postgresql://postgres:change_me_local_only@localhost:5432/wallet_test'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 
@@ -56,7 +62,8 @@ try {
       NODE_ENV: 'test',
       API_PORT: 5000,
       CORS_ORIGIN: 'http://localhost:5173',
-      DATABASE_URL: 'postgresql://postgres:change_me_local_only@localhost:5432/wallet_app_db_test',
+      DATABASE_URL: 'postgresql://postgres:change_me_local_only@localhost:5432/wallet_app_db',
+      TEST_DATABASE_URL: 'postgresql://postgres:change_me_local_only@localhost:5432/wallet_test',
       LOG_LEVEL: 'error',
     };
   } else {

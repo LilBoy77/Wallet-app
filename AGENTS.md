@@ -46,5 +46,5 @@ Sebelum menjalankan tugas apa pun, baca dokumen terkait berikut:
 - **Pengujian**: `pnpm test` (menjalankan Vitest di seluruh workspace paket).
 - **Build**: `pnpm build` (shared $\rightarrow$ api $\rightarrow$ web).
 - **Development**: `pnpm dev` (paralel) | `pnpm dev:api` (port 5000) | `pnpm dev:web` (port 5173).
-- **Database Dev**: `pnpm db:up` | `pnpm db:down` | `pnpm db:logs` ([infrastructure/docker-compose.yml](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/infrastructure/docker-compose.yml)).
+- **Database Dev & Migrasi**: `pnpm db:up` | `pnpm db:down` | `pnpm db:logs` | `pnpm db:migrate` | `pnpm db:rollback` | `pnpm db:status` | `pnpm db:seed` | `pnpm db:reset` | `pnpm db:verify`.
 - **Environment**: [.env.example](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.env.example) disalin ke `.env` lokal (terdaftar di [.gitignore](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/.gitignore)).

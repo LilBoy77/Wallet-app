@@ -21,6 +21,15 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 | **ADR-012** | 2026-10-11 | Dev Server Proxy Frontend ke Backend API (Vite Proxy) | `accepted` | [apps/web/vite.config.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/web/vite.config.ts) |
 | **ADR-013** | 2026-10-11 | Pinning Versi Image PostgreSQL (postgres:16.8-alpine) | `accepted` | [infrastructure/docker-compose.yml](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/infrastructure/docker-compose.yml) |
 | **ADR-014** | 2026-10-11 | Pemilihan Development Runner (tsx) dan Test Runner (Vitest) | `accepted` | [package.json](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/package.json) |
+| **ADR-015** | 2026-10-11 | Pemilihan Tool Migration Database (Native SQL Migrator berbasis pg) | `accepted` | [apps/api/src/database/migrator.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/database/migrator.ts) |
+| **ADR-016** | 2026-10-11 | Standarisasi Primary Key UUIDv4 (gen_random_uuid) | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-017** | 2026-10-11 | Mekanisme Otomatisasi updated_at via PostgreSQL Trigger Function | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-018** | 2026-10-11 | Penegakan Append-Only Immutability pada Buku Besar (wallet_entries) | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-019** | 2026-10-11 | Strategi Soft Delete & Partial Unique Indexes (Case-Insensitive) | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-020** | 2026-10-11 | Kebijakan Integritas Referensial Foreign Key (CASCADE vs RESTRICT) | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-021** | 2026-10-11 | Strategi Database Seeder Deterministik & Rekonsiliasi Saldo | `accepted` | [apps/api/src/database/seeder.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/database/seeder.ts) |
+| **ADR-022** | 2026-10-11 | Isolasi Database Pengujian & Multi-Layer Safety Guard | `accepted` | [apps/api/tests/database/test-db-helper.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/tests/database/test-db-helper.ts) |
+| **ADR-023** | 2026-10-11 | Resolusi Keputusan Terbuka [OPEN] (OPEN-PB-01, OPEN-PB-02, OPEN-SEC-01) | `accepted` | [PROJECT_BRIEF.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/PROJECT_BRIEF.md) |
 
 ---
 
@@ -178,3 +187,97 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 - **Keputusan**: Menggunakan **`tsx watch`** untuk server dev backend dan **Vitest** untuk pengujian unit/integrasi di frontend dan backend.
 - **Alasan**: `tsx` mendukung native TypeScript ESM tanpa perlu build terpisah; Vitest berbagi pipeline transformasi yang sama dengan Vite sehingga pengujian berjalan sangat cepat.
 - **Status**: `accepted`
+
+---
+
+### ADR-015: Pemilihan Tool Migration Database (Native SQL Migrator berbasis pg)
+- **Konteks**: Diperlukan migration engine yang memberikan kontrol penuh atas fitur lanjutan PostgreSQL (CHECK constraint, partial unique index, trigger function, table locks) tanpa menyembunyikan constraint di balik abstraksi ORM.
+- **Opsi**:
+  1. *Prisma / TypeORM / Drizzle*: Abstraksi ORM tingkat tinggi sering mengaburkan atau membatasi partial indexes `WHERE deleted_at IS NULL`, trigger append-only, dan enum kustom.
+  2. *Knex*: Query builder dengan CLI migrasi, namun menambahkan ketergantungan abstraksi SQL tambahan.
+  3. *Native SQL Migrator dengan `pg`*: Runner TypeScript mandiri yang mengeksekusi pasangan berkas `.up.sql` dan `.down.sql` mentah dalam transaksi atomik dengan PostgreSQL advisory locking (`pg_advisory_lock`).
+- **Keputusan**: Mengadopsi **Native SQL Migrator berbasis `pg`** di `apps/api/src/database/migrator.ts`.
+- **Alasan**: Memberikan kejelasan 100% atas SQL murni, mendukung isolasi transaksi per berkas migrasi, mencegah race condition konkuren via advisory locking, dan tidak membatasi kemampuan database.
+- **Status**: `accepted`
+
+---
+
+### ADR-016: Standarisasi Primary Key UUIDv4 (gen_random_uuid)
+- **Konteks**: Seluruh entitas tabel relasional memerlukan tipe identifier yang aman dari enumeration attack dan cocok untuk transaksi finansial terdistribusi.
+- **Opsi**:
+  1. Integer auto-increment (`SERIAL` / `BIGSERIAL`).
+  2. UUID v4 via fungsi native PostgreSQL `gen_random_uuid()`.
+- **Keputusan**: Menggunakan **`UUID PRIMARY KEY DEFAULT gen_random_uuid()`** pada seluruh 13 tabel aplikasi.
+- **Alasan**: Mencegah kebocoran jumlah pengguna/transaksi ke pihak luar (IDOR / enumeration safety) dan mempermudah sinkronisasi data tanpa konflik collision sequence.
+- **Status**: `accepted`
+
+---
+
+### ADR-017: Mekanisme Otomatisasi updated_at via PostgreSQL Trigger Function
+- **Konteks**: Kolom audit `updated_at` harus selalu mencerminkan waktu modifikasi data aktual secara konsisten, bahkan jika update dilakukan lewat script maintenance, psql, atau query raw.
+- **Opsi**:
+  1. Dikelola manual oleh layer aplikasi backend (`updated_at = new Date()`).
+  2. Ditegakkan di level database melalui trigger function `set_updated_at_timestamp()`.
+- **Keputusan**: **Database Trigger Function `set_updated_at_timestamp()`** yang dipasang pada tabel `users`, `wallets`, `categories`, `budgets`, dan `transactions`.
+- **Alasan**: Menjamin integritas timestamp tidak pernah terlewat atau dimanipulasi oleh kelalaian kode aplikasi.
+- **Status**: `accepted`
+
+---
+
+### ADR-018: Penegakan Append-Only Immutability pada Buku Besar (wallet_entries)
+- **Konteks**: Tabel `wallet_entries` bertindak sebagai audit ledger mutasi saldo. Setiap mutasi yang sudah tercatat dilarang diubah atau dihapus untuk mencegah manipulasi historis.
+- **Keputusan**: Memasang **trigger penolak mutasi `prevent_wallet_entries_mutation()`** (`BEFORE UPDATE OR DELETE ON wallet_entries`) yang melempar exception fatal jika terjadi percobaan `UPDATE` atau `DELETE`.
+- **Alasan**: Memberikan jaminan integritas tingkat basis data (*database-level tamper resistance*) yang dibuktikan melalui pengujian otomatis.
+- **Status**: `accepted`
+
+---
+
+### ADR-019: Strategi Soft Delete & Partial Unique Indexes (Case-Insensitive)
+- **Konteks**: Entitas ber-soft-delete (`users`, `categories`) memiliki batasan unique (email, username, category name) yang berpotensi memblokir pendaftaran ulang jika menggunakan standard unique constraint.
+- **Keputusan**: Menggunakan **Partial Unique Indexes dengan normalisasi `LOWER()`**:
+  - `idx_users_email_active UNIQUE (LOWER(email)) WHERE deleted_at IS NULL`
+  - `idx_users_username_active UNIQUE (LOWER(username)) WHERE deleted_at IS NULL`
+  - `idx_categories_user_name_type_active UNIQUE (user_id, LOWER(name), type) WHERE deleted_at IS NULL AND user_id IS NOT NULL`
+  - `idx_categories_system_name_type_active UNIQUE (LOWER(name), type) WHERE deleted_at IS NULL AND user_id IS NULL`
+- **Alasan**: Memastikan email/username/kategori bersifat case-insensitive, mencegah tabrakan data aktif, dan mengizinkan penggunaan ulang identifier setelah baris lama di-soft delete.
+- **Status**: `accepted`
+
+---
+
+### ADR-020: Kebijakan Integritas Referensial Foreign Key (CASCADE vs RESTRICT)
+- **Konteks**: Menentukan kebijakan penghapusan relasional secara sengaja untuk mencegah ketergantungan orphan dan melindungi riwayat finansial.
+- **Keputusan**:
+  - `ON DELETE CASCADE`: Digunakan untuk relasi kepemilikan ketat privat (`wallets.user_id`, `attachments.transaction_id`, `transaction_tags.*`, `refresh_tokens.user_id`, `notifications.user_id`).
+  - `ON DELETE RESTRICT`: Digunakan untuk relasi finansial kritis (`transactions.category_id`, `budgets.category_id`, `transfers.source_wallet_id`, `transfers.target_wallet_id`) untuk mencegah penghapusan kategori/wallet yang memiliki riwayat audit aktif.
+  - `ON DELETE SET NULL`: Digunakan pada `activity_logs.user_id` agar jejak audit sistem tetap ada meskipun entitas user terkait dihapus.
+- **Status**: `accepted`
+
+---
+
+### ADR-021: Strategi Database Seeder Deterministik & Rekonsiliasi Saldo
+- **Konteks**: Pengujian dan demonstrasi memerlukan data awal $\ge 20$ baris per tabel dengan relasi yang saling berkorelasi secara matematis.
+- **Keputusan**: Menggunakan **seeder deterministik** (`apps/api/src/database/seeder.ts`) yang menjamin:
+  1. Saldo dompet `wallets.balance` selalu sama persis dengan selisih `SUM(credit) - SUM(debit)` pada `wallet_entries`.
+  2. Setiap transfer internal berstatus `completed` memiliki sepasang entri buku besar (debit di pengirim dan kredit di penerima) dengan nominal identik.
+  3. Kredensial akun development di-hash menggunakan bcrypt cost factor 12 (Admin: `admin@walletapp.local` / `Admin123!`, Regular Users: `user01`..`user19` / `User123!`).
+- **Status**: `accepted`
+
+---
+
+### ADR-022: Isolasi Database Pengujian & Multi-Layer Safety Guard
+- **Konteks**: Eksekusi pengujian otomatis dan skrip destruktif (`db:reset`, seeder) tidak boleh mencemari atau menghapus database development atau database produksi.
+- **Keputusan**:
+  1. Skrip pengujian Vitest hanya berjalan terhadap `TEST_DATABASE_URL` (nama `wallet_test`) dan menolak berjalan jika database pengujian sama dengan database dev (`wallet_app_db`).
+  2. Guard `assertEnvironmentSafety()` menolak eksekusi jika `NODE_ENV === 'production'` atau host bukan lokal (`localhost`, `127.0.0.1`, `postgres`).
+- **Status**: `accepted`
+
+---
+
+### ADR-023: Resolusi Keputusan Terbuka [OPEN] (OPEN-PB-01, OPEN-PB-02, OPEN-SEC-01)
+- **Konteks**: Dokumen Phase 0 memuat 3 item `[OPEN]` dengan rekomendasi yang perlu disahkan pada Phase 2.
+- **Keputusan**:
+  1. **OPEN-PB-01**: Status akun registrasi awal langsung aktif (`is_active = true`, `is_verified = true`) untuk mempermudah penilaian tugas, dengan kolom skema siap untuk ekspansi OTP. Status: `accepted`.
+  2. **OPEN-PB-02**: Batas maksimum ukuran file lampiran bukti transaksi dibatasi 2MB (`file_size <= 2097152`) dengan whitelist MIME (`image/jpeg`, `image/png`, `application/pdf`). Status: `accepted`.
+  3. **OPEN-SEC-01**: Mitigasi mutasi saldo kritis menggunakan validasi origin CORS dan keharusan header `Idempotency-Key` (tanpa beban CSRF double cookie ganda). Status: `accepted`.
+- **Status**: `accepted`
+

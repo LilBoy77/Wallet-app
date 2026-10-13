@@ -14,4 +14,8 @@ export interface HealthCheckPayload {
   timestamp: string;
   service: string;
   version: string;
+  database?: {
+    status: 'connected' | 'disconnected';
+    latencyMs?: number;
+  };
 }
