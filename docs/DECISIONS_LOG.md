@@ -281,3 +281,76 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
   3. **OPEN-SEC-01**: Mitigasi mutasi saldo kritis menggunakan validasi origin CORS dan keharusan header `Idempotency-Key` (tanpa beban CSRF double cookie ganda). Status: `accepted`.
 - **Status**: `accepted`
 
+---
+
+### ADR-024: Pemilihan Structured Logger (Pino) dan Strategi Redaksi Sensitif
+- **Konteks**: Aplikasi memerlukan sistem logging terstruktur yang cepat, hemat overhead, dan memiliki jaminan tidak membocorkan kredensial, token, atau rahasia.
+- **Opsi**:
+  1. Winston (fitur lengkap, overhead lebih tinggi, konfigurasi serializer manual).
+  2. Pino (berperforma tinggi, native JSON output, built-in deep-path redaction).
+- **Keputusan**: Menggunakan **Pino** (`pino` + dev `pino-pretty`).
+- **Alasan**: Pino memiliki performa asinkron tercepat di ekosistem Node.js dan menyediakan fitur `redact.paths` yang secara otomatis menyensor properti sensitif (`authorization`, `cookie`, `set-cookie`, `password`, `token`, `refreshToken`, `accessToken`, `secret`) di seluruh level hierarki objek log.
+- **Status**: `accepted`
+
+---
+
+### ADR-025: Strategi Penanganan Unknown Fields pada Validasi Zod (Strip vs Strict)
+- **Konteks**: Request body yang dikirim oleh klien dapat memuat properti tambahan yang tidak terdaftar pada skema DTO.
+- **Keputusan**: Menggunakan perilaku **`strip` secara default** pada middleware validasi (`apps/api/src/middlewares/validator.middleware.ts`), dengan keleluasaan skema individu menerapkan `.strict()` jika diperlukan.
+- **Alasan**: Mencegah *breaking change* pada penambahan field forward-compatible dan secara aman membuang properti berlebih sebelum mencapai Service layer, mencegah *mass-assignment vulnerability*.
+- **Status**: `accepted`
+
+---
+
+### ADR-026: Urutan Pipeline Middleware Express & Keamanan Standar
+- **Konteks**: Request pipeline harus tersusun secara sengaja agar setiap lapisan keamanan dan observabilitas berjalan pada urutan optimal.
+- **Keputusan**: Urutan sekuensial:
+  1. `requestIdMiddleware` $\rightarrow$ 2. `helmet` + `trust proxy` $\rightarrow$ 3. `createCorsMiddleware` $\rightarrow$ 4. `globalRateLimiter` $\rightarrow$ 5. `express.json` + `urlencoded` $\rightarrow$ 6. `requestLoggingMiddleware` $\rightarrow$ 7. Health routes (`/health`, `/health/ready`) $\rightarrow$ 8. `/api/v1` router $\rightarrow$ 9. `notFoundHandler` $\rightarrow$ 10. `globalErrorHandler`.
+- **Alasan**: Request ID diinisialisasi pertama agar tersedia di header Helmet, CORS, logging, dan error response. Health route diletakkan sebelum parser dan 404 agar liveness check secepat mungkin.
+- **Status**: `accepted`
+
+---
+
+### ADR-027: Strategi Rate Limiting In-Memory dan Factory Rute Autentikasi
+- **Konteks**: Mencegah serangan brute-force dan DoS pada seluruh endpoint dan menyiapkan proteksi khusus endpoint auth di Phase 4.
+- **Keputusan**: Menggunakan **`express-rate-limit`** dengan:
+  1. `globalRateLimiter`: 100 request per 15 menit per IP (default env).
+  2. Factory `createRateLimiter(options)`: Factory fungsi yang dapat dikonfigurasi untuk dipasang pada rute auth (Phase 4).
+  3. Response format: HTTP 429 berformat standar envelope dengan header `Retry-After`.
+- **Status**: `accepted`
+
+---
+
+### ADR-028: Abstraksi dan Translasi Kode Error PostgreSQL (Zero Information Leakage)
+- **Konteks**: Kesalahan basis data (pelanggaran unik, FK, check constraint) tidak boleh membocorkan nama tabel internal, nama constraint, atau query SQL mentah ke klien di lingkungan mana pun.
+- **Keputusan**: Menerapkan pemetaan SQLSTATE di `mapPostgresError`:
+  - `23505` (unique) $\rightarrow$ 409 `DUPLICATE_ENTRY`.
+  - `23503` (foreign key) $\rightarrow$ 422 `FOREIGN_KEY_VIOLATION`.
+  - `23514` (check constraint) $\rightarrow$ 422 `CHECK_CONSTRAINT_VIOLATION`.
+  - `23502` (not null) $\rightarrow$ 400 `BAD_REQUEST`.
+  - `22P02` (invalid representation) $\rightarrow$ 400 `INVALID_PARAMETER`.
+  - `40001`/`40P01` (deadlock/serialization) $\rightarrow$ 409 `TRANSACTION_CONCURRENCY_ERROR`.
+  - `57014` (query timeout) $\rightarrow$ 504 `QUERY_TIMEOUT`.
+- **Alasan**: Menghilangkan risiko reconnaissance attack dan menjaga kepatuhan OWASP ASVS.
+- **Status**: `accepted`
+
+---
+
+### ADR-029: Helper Transaksi Atomik Database (`withTransaction`) & Penolakan Base Repository CRUD
+- **Konteks**: Operasi transfer saldo dan mutasi ledger memerlukan transaksi atomik dengan dukungan isolasi dan perlindungan terhadap nested transaction.
+- **Keputusan**:
+  1. Menggunakan helper fungsional **`withTransaction<T>(fn, options)`** dengan pengelolaan otomatis `BEGIN`, `COMMIT`, `ROLLBACK`, dan `release()`.
+  2. Mendukung opsi `isolationLevel` (`READ COMMITTED`, `REPEATABLE READ`, `SERIALIZABLE`) dan bounded retry untuk `40001`/`40P01`.
+  3. Menolak tegas nested transactions pada client yang sama dengan exception `NESTED_TRANSACTION_NOT_SUPPORTED`.
+  4. **Dilarang membuat Base Repository CRUD generik**: Repositori setiap modul akan ditulis secara mandiri di fase mendatang untuk menjaga kejelasan locking (`FOR UPDATE`) dan batas transaksi finansial.
+- **Status**: `accepted`
+
+---
+
+### ADR-030: Penanganan Route Handler Asinkron pada Express v4 via Wrapper (`asyncHandler`)
+- **Konteks**: Express yang terpasang adalah versi `4.22.3` yang tidak menangani unhandled Promise rejection secara otomatis.
+- **Keputusan**: Menggunakan wrapper utilitas **`asyncHandler(fn)`** pada setiap route handler asinkron di Express.
+- **Alasan**: Mencegah request hang atau proses Node.js crash tanpa penanganan global error handler Express.
+- **Status**: `accepted`
+
+

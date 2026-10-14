@@ -66,22 +66,54 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
         "field": "amount",
         "message": "Nominal transfer harus lebih besar dari 0"
       }
-    ]
+    ],
+    "requestId": "bf8c4f6f-37e2-484b-8a8c-48a0dbbb6e4d"
   }
 }
 ```
 
 ---
 
-## 3. Konvensi Query Parameters (Search, Filter, Sort, Pagination) `[DECIDED]`
-- **Pagination**: `?page=1&limit=20` (default: page=1, limit=10, max=100)
-- **Search**: `?search=makan` (pencarian teks pada deskripsi atau nama penerima)
-- **Filter**: `?type=expense&category_id=<uuid>&start_date=2026-01-01&end_date=2026-01-31&min_amount=10000`
-- **Sorting**: `?sort_by=transaction_date&order=desc` (whitelist kolom yang diizinkan)
+## 3. Katalog Kode Error Stabil (Error Code Catalog) `[DECIDED]`
+| Kode Error | HTTP Status | Penjelasan & Skenario |
+| :--- | :--- | :--- |
+| `BAD_REQUEST` | 400 | Parameter query tidak valid, kolom wajib kosong, atau format request salah. |
+| `INVALID_JSON` | 400 | Payload body bukan sintaks JSON yang valid. |
+| `INVALID_PARAMETER` | 400 | Format identifier, UUID, atau parameter URL tidak sesuai tipe data. |
+| `UNAUTHORIZED` | 401 | Ketiadaan access token, token kedaluwarsa, atau kredensial salah. |
+| `FORBIDDEN` | 403 | Akses ditolak karena batasan role atau origin CORS tidak diizinkan. |
+| `ORIGIN_NOT_ALLOWED` | 403 | Request Origin ditolak oleh whitelist CORS backend. |
+| `NOT_FOUND` | 404 | Rute URL tidak ditemukan atau entitas data tidak tersedia. |
+| `CONFLICT` | 409 | Tabrakan data unik atau konflik kunci idempotensi. |
+| `DUPLICATE_ENTRY` | 409 | Pelanggaran constraint unik basis data (misal email/username kembar). |
+| `TRANSACTION_CONCURRENCY_ERROR` | 409 | Kegagalan serialisasi atau deadlock konkuren database (`40001`/`40P01`). |
+| `PAYLOAD_TOO_LARGE` | 413 | Ukuran body request atau berkas melebihi batas (default 1MB, upload 2MB). |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 | Format berkas atau tipe MIME tidak didukung. |
+| `VALIDATION_ERROR` | 422 | Kegagalan validasi skema Zod (disertai daftar rincian `field` dan `message`). |
+| `UNPROCESSABLE_ENTITY` | 422 | Validasi aturan bisnis gagal (misal saldo tidak mencukupi). |
+| `TOO_MANY_REQUESTS` | 429 | Ambang batas rate limit terlampaui (disertai header `Retry-After`). |
+| `INTERNAL_SERVER_ERROR` | 500 | Kesalahan internal sistem tak terduga (disanitasi di mode production). |
+| `NESTED_TRANSACTION_NOT_SUPPORTED` | 500 | Percobaan transaksi database bersarang pada client yang sama ditolak. |
+| `SERVICE_UNAVAILABLE` | 503 | Database atau komponen inti sistem sedang tidak dapat dihubungi. |
+| `QUERY_TIMEOUT` | 504 | Batas waktu eksekusi query terlampaui (`57014`). |
 
 ---
 
-## 4. Katalog Endpoint per Modul (Semua Berstatus PLANNED)
+## 4. Konvensi Query Parameters (Search, Filter, Sort, Pagination) `[DECIDED]`
+- **Pagination**: `?page=1&limit=20` (default: page=1, limit=10, max=100)
+- **Search**: `?search=makan` (pencarian teks pada deskripsi atau nama penerima)
+- **Filter**: `?type=expense&category_id=<uuid>&start_date=2026-01-01&end_date=2026-01-31&min_amount=10000`
+- **Sorting**: `?sort_by=transaction_date&order=desc` (whitelist kolom yang diizinkan per modul; input tidak dikenal ditolak untuk mencegah SQL injection)
+
+---
+
+## 5. Katalog Endpoint per Modul
+
+### Modul 0: Infrastruktur & Health Check (Di Luar Prefix `/api/v1`)
+| Method | Endpoint | Peran | Parameter / Body | Status Code | Keterangan | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/health` | Public | None | 200 | Liveness probe (memverifikasi server HTTP menyala) | `VERIFIED` |
+| `GET` | `/health/ready` | Public | None | 200, 503 | Readiness probe (memeriksa konektivitas pool PostgreSQL) | `VERIFIED` |
 
 ### Modul 1: Autentikasi (`/api/v1/auth`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |

@@ -27,9 +27,36 @@ export const envSchema = z.object({
     })
     .default('postgresql://postgres:change_me_local_only@localhost:5432/wallet_test'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  BODY_SIZE_LIMIT: z.string().default('1mb'),
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000), // 15 mins
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+  TRUST_PROXY: z
+    .preprocess(
+      (val) => {
+        if (typeof val === 'string') {
+          const lower = val.trim().toLowerCase();
+          if (lower === 'true') return true;
+          if (lower === 'false') return false;
+          const num = Number(val);
+          if (!isNaN(num)) return num;
+        }
+        return val;
+      },
+      z.union([z.boolean(), z.number().int().nonnegative()])
+    )
+    .default(false),
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000), // 10s
+  PAGINATION_MAX_LIMIT: z.coerce.number().int().positive().default(100),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
+
+export function getCorsAllowedOrigins(originString: string): string[] {
+  return originString
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export function validateEnv(rawEnv: Record<string, unknown> = process.env): EnvConfig {
   const parsed = envSchema.safeParse(rawEnv);
@@ -65,6 +92,12 @@ try {
       DATABASE_URL: 'postgresql://postgres:change_me_local_only@localhost:5432/wallet_app_db',
       TEST_DATABASE_URL: 'postgresql://postgres:change_me_local_only@localhost:5432/wallet_test',
       LOG_LEVEL: 'error',
+      BODY_SIZE_LIMIT: '1mb',
+      RATE_LIMIT_WINDOW_MS: 900000,
+      RATE_LIMIT_MAX_REQUESTS: 100,
+      TRUST_PROXY: false,
+      SHUTDOWN_TIMEOUT_MS: 10000,
+      PAGINATION_MAX_LIMIT: 100,
     };
   } else {
     throw err;

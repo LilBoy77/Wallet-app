@@ -59,12 +59,13 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ---
 
 ### Phase 3: Backend Foundation, Configuration & Error Handling
-- **Tujuan**: Menyiapkan struktur Express, modular architecture, middleware global (CORS, Helmet, Rate Limit, Error Handler), env validation, dan database client.
+- **Status**: **COMPLETED (Verified)**
+- **Tujuan**: Menyiapkan struktur Express, modular architecture, middleware global (CORS, Helmet, Rate Limit, Error Handler), env validation, database client, dan error handling lintas-modul.
 - **Prasyarat**: Phase 2 selesai.
-- **Hasil**: Server `apps/api` menyala dengan endpoint health check `/api/health` dan global error format standar.
-- **Dokumen yang Dibaca**: [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md).
-- **Test yang Harus Lulus**: API test untuk endpoint `/api/health` dan simulasi 404/500 error handler.
-- **Kriteria Lanjut**: Response error terbukti selalu konsisten dalam format `{ success: false, error: { ... } }`.
+- **Hasil**: Server `apps/api` menyala dengan pipeline 10 middleware terstandarisasi, liveness `/health` dan readiness `/health/ready`, hirarki `AppError` lengkap, katalog kode error stabil, validasi Zod dengan perapian field, helper listing anti-SQL injection, transaksi terkelola `withTransaction` dengan isolasi level dan bounded retry, structured logger Pino dengan redaksi otomatis, shutdown anggun terverifikasi, serta 70 tests Vitest lulus di seluruh monorepo.
+- **Dokumen yang Dibaca**: [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md), [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md), [DECISIONS_LOG.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DECISIONS_LOG.md).
+- **Test yang Lulus**: 70 tests Vitest di `apps/api` (error hierarchy, PostgreSQL real constraint violations, log redaction, rate limiter 429, CORS & Helmet, listing SQL injection protection, transaction commit/rollback/release, health probes) dan 1 test di `apps/web`.
+- **Kriteria Lanjut**: Seluruh endpoint error konsisten dalam envelope `{ success: false, error: { code, message, details, requestId } }`, fondasi siap menyangga modul bisnis Phase 4+.
 
 ---
 

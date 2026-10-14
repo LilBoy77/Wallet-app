@@ -1,13 +1,47 @@
 # BACKEND_GUIDELINES — Panduan Rekayasa Arsitektur Backend API
 
-Dokumen ini memuat standar rekayasa backend, konvensi penulisan kode, penanganan transaksi database, validasi, dan pola arsitektur berlapis untuk layanan **`apps/api`** (Node.js + Express + TypeScript + PostgreSQL).
+Dokumen ini memuat standar rekayasa backend, konvensi penulisan kode, urutan pipeline middleware, penanganan transaksi database, validasi Zod, dan pola registrasi modul untuk layanan **`apps/api`** (Node.js + Express 4 + TypeScript + PostgreSQL).
 
 ---
 
-## 1. Pola Arsitektur Berlapis per Domain (Modular Layered Pattern) `[DECIDED]`
+## 1. Pipeline Middleware Terstandarisasi (Request Pipeline) `[DECIDED]`
+
+Express application (`apps/api/src/app.ts`) menjalankan middleware dalam urutan sekuensial yang disengaja dan terdokumentasi:
+
+1. **Request ID Tracking (`requestIdMiddleware`)**:
+   - Membaca header `X-Request-Id` (format UUID v4). Jika valid, dipakai ulang; bila tidak ada atau invalid, dibuat baru menggunakan `crypto.randomUUID()`.
+   - Disematkan ke konteks `req.id` dan dikembalikan di response header `X-Request-Id`.
+2. **Security Headers & Proxy (`helmet` + `trust proxy`)**:
+   - Proteksi header HTTP dasar via Helmet (anti-clickjacking, nosniff, CSP).
+   - Pengaturan `trust proxy` dikonfigurasi melalui environment variable `TRUST_PROXY`.
+3. **CORS Whitelist (`createCorsMiddleware`)**:
+   - Origin eksplisit dari `CORS_ORIGIN`. Wildcard `*` dilarang keras saat `credentials: true`.
+   - Permintaan dari origin tak dikenal ditolak dengan status HTTP 403 `ORIGIN_NOT_ALLOWED`.
+4. **Global Rate Limiter (`globalRateLimiter`)**:
+   - Ambang batas request global per IP (default: 100 request / 15 menit). Melebihi batas mengembalikan HTTP 429 berformat standar dengan header `Retry-After`.
+5. **Body Parser (`express.json`, `express.urlencoded`)**:
+   - Batas muatan aman dari `BODY_SIZE_LIMIT` (default: 1MB). JSON rusak memicu HTTP 400 `INVALID_JSON`, payload melebihi batas memicu HTTP 413 `PAYLOAD_TOO_LARGE`.
+6. **Structured Safe Request Logging (`requestLoggingMiddleware`)**:
+   - Pencatatan request berbasis Pino dengan redaksi otomatis pada header autentikasi (`authorization`, `cookie`, `set-cookie`) dan kata kunci sensitif (`password`, `token`, `secret`).
+   - Body request **tidak pernah** dicatat ke log demi privasi dan keamanan.
+7. **Infrastructure Health Probes (di luar prefix `/api/v1`)**:
+   - `GET /health`: Liveness probe (HTTP 200 konstan, tidak menyentuh database).
+   - `GET /health/ready`: Readiness probe (memeriksa konektivitas PostgreSQL via `checkDatabaseHealth()`).
+8. **Root API Router (`/api/v1`)**:
+   - Titik integrasi seluruh router modul domain via registry terpusat.
+9. **404 Route Not Found Handler (`notFoundHandler`)**:
+   - Menangkap seluruh URL yang tidak terdaftar dan mengembalikan envelope 404 terstandarisasi.
+10. **Centralized Global Error Handler (`globalErrorHandler`)**:
+    - Titik akhir penerjemahan error sistem, `AppError`, Zod, dan SQLSTATE PostgreSQL.
+
+---
+
+## 2. Pola Arsitektur Berlapis per Domain (Modular Layered Pattern) `[DECIDED]`
+
 Layanan backend diorganisasikan ke dalam modul domain mandiri di `apps/api/src/modules/`:
 ```text
 modules/
+├── api.router.ts      <-- Root registry modul /api/v1
 ├── auth/
 ├── users/
 ├── wallets/
@@ -19,87 +53,138 @@ modules/
 ├── notifications/
 └── admin/
 ```
-Setiap modul domain wajib memisahkan tanggung jawab ke dalam 5 lapisan:
-1. **`*.routes.ts`**: Mendefinisikan endpoint URL, metode HTTP, dan merangkai middleware (Rate Limiter, `requireAuth`, `requireRole`, `validateBody(schema)`, Controller handler).
-2. **`*.controller.ts`**: Menangani konteks HTTP: membaca `req.params`, `req.query`, `req.body`, memanggil Service terkait, dan membungkus hasil ke dalam Response Envelope (`res.status(200).json(...)`).
-3. **`*.service.ts`**: Memuat seluruh logika bisnis murni. Mengelola validasi aturan bisnis (misal saldo mencukupi), mengorkestrasi beberapa repositori, dan membungkus alur dalam transaksi database. **Service tidak boleh mengakses objek `req` atau `res` secara langsung**.
-4. **`*.repository.ts`**: Menjalankan interaksi I/O database (SELECT, INSERT, UPDATE, row locking `FOR UPDATE`, filter soft delete).
-5. **`*.schemas.ts`**: Skema Zod untuk validasi request payload, URL parameter, dan query string (dapat mengimpor dari `packages/shared`).
 
----
-
-## 2. Standar Konvensi Penamaan (Naming Conventions) `[DECIDED]`
-- **File & Folder**: Kebab-case (misal `transfer.service.ts`, `wallet-entry.repository.ts`).
-- **Kelas**: PascalCase (misal `TransferService`, `TransactionRepository`, `AppError`).
-- **Fungsi & Variabel**: camelCase (misal `createInternalTransfer`, `sourceWalletId`).
-- **Konstanta & Enum**: UPPER_SNAKE_CASE (misal `TRANSACTION_STATUS_COMPLETED`, `DEFAULT_PAGE_LIMIT`).
-- **Tabel & Kolom Database**: snake_case (misal `wallet_entries`, `idempotency_key`, `created_at`).
-
----
-
-## 3. Penanganan Transaksi Database Atomik (Database Transactions) `[DECIDED]`
-Seluruh operasi yang memodifikasi lebih dari satu entitas finansial (seperti transfer saldo internal atau mutasi transaksi yang memengaruhi balance) WAJIB menggunakan transaksi database terkelola:
-
+### Cara Mendaftarkan Modul Baru ke API Router:
+Gunakan fungsi `registerApiModule` dari `apps/api/src/modules/api.router.ts`:
 ```typescript
-// Contoh Pola Transaksi Finansial Aman
-export class TransferService {
-  async executeTransfer(params: ExecuteTransferDto, currentUser: AuthenticatedUser) {
-    const dbClient = await db.beginTransaction();
-    try {
-      // 1. Ambil ID terkecil terlebih dahulu untuk mengunci baris (Anti-Deadlock)
-      const sortedIds = [params.sourceWalletId, params.targetWalletId].sort();
-      await dbClient.query(
-        'SELECT id, balance FROM wallets WHERE id IN ($1, $2) FOR UPDATE',
-        sortedIds
-      );
+import { Router } from 'express';
+import { registerApiModule } from './api.router.js';
 
-      // 2. Validasi kecukupan saldo & status wallet
-      const source = await this.walletRepo.findById(params.sourceWalletId, dbClient);
-      if (source.balance < params.amount) {
-        throw new AppError('Saldo tidak mencukupi untuk transfer', 422, 'INSUFFICIENT_FUNDS');
-      }
+const exampleRouter = Router();
+exampleRouter.get('/', (req, res) => res.json({ success: true, data: [] }));
 
-      // 3. Mutasi Saldo
-      await this.walletRepo.decrementBalance(params.sourceWalletId, params.amount, dbClient);
-      await this.walletRepo.incrementBalance(params.targetWalletId, params.amount, dbClient);
-
-      // 4. Catat Transfer Record & Double-Entry Ledger
-      const transfer = await this.transferRepo.create(params, dbClient);
-      await this.ledgerRepo.createDebitEntry(source, params.amount, transfer.id, dbClient);
-      await this.ledgerRepo.createCreditEntry(target, params.amount, transfer.id, dbClient);
-
-      // 5. Commit Transaksi
-      await db.commitTransaction(dbClient);
-      return transfer;
-    } catch (error) {
-      await db.rollbackTransaction(dbClient);
-      throw error;
-    }
-  }
-}
+// Daftarkan modul ke prefix /api/v1/example
+registerApiModule({
+  name: 'example',
+  prefix: '/example',
+  router: exampleRouter,
+  description: 'Contoh registrasi modul domain baru',
+});
 ```
 
 ---
 
-## 4. Middleware Validasi & Penanganan Error Terpusat `[DECIDED]`
-1. **Validasi Skema (Zod Middleware)**:
-   - Diterapkan sebelum Controller dieksekusi: `validateBody(zodSchema)`, `validateQuery(zodSchema)`.
-   - Mengembalikan HTTP 422 Unprocessable Entity dengan rincian field yang bermasalah.
-2. **Abstraksi `AppError`**:
-   - `class AppError extends Error { constructor(public message: string, public statusCode: number = 400, public errorCode: string = 'BAD_REQUEST', public details: any = null) { ... } }`
-3. **Global Error Handler Middleware**:
-   - Menangkap seluruh error turunan `AppError` dan exception tak tertangani.
-   - Mengembalikan JSON konsisten `{ success: false, error: { code, message, details } }`.
-   - Di production, pesan internal dari exception yang tidak bertipe `AppError` disanitasi menjadi `"Internal server error"` dan detail disembunyikan.
+## 3. Penanganan Transaksi Database Terkelola (`withTransaction`) `[DECIDED]`
+
+Seluruh operasi mutasi saldo atau multi-entitas finansial WAJIB menggunakan helper `withTransaction`:
+
+```typescript
+import { withTransaction } from '../database/index.js';
+
+const transferResult = await withTransaction(
+  async (client) => {
+    // 1. Kunci baris dompet (Anti-Deadlock: urutkan ID)
+    await client.query('SELECT id, balance FROM wallets WHERE id IN ($1, $2) FOR UPDATE', [id1, id2]);
+
+    // 2. Mutasi saldo
+    await client.query('UPDATE wallets SET balance = balance - $1 WHERE id = $2', [amount, id1]);
+    await client.query('UPDATE wallets SET balance = balance + $1 WHERE id = $2', [amount, id2]);
+
+    return { transferred: true };
+  },
+  {
+    isolationLevel: 'REPEATABLE READ', // Pilihan: 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE'
+    maxRetries: 2,                     // Retry otomatis jika terjadi deadlock (40P01) atau serialization failure (40001)
+  }
+);
+```
+
+### Aturan Transaksi:
+- **Client Selalu Dilepas**: Client database selalu di-release kembali ke pool pada blok `finally`.
+- **Tidak Mendukung Nested Transactions**: Memanggil `withTransaction` di dalam `withTransaction` aktif pada client yang sama akan ditolak secara tegas dengan `AppError` (`NESTED_TRANSACTION_NOT_SUPPORTED`).
+- **Tanpa Base Repository CRUD Generik**: Repositori tiap modul ditulis eksplisit untuk mempertahankan kejelasan query SQL dan mekanisme locking.
 
 ---
 
-## 5. Larangan Manipulasi Data Dummy & Fallback Ilegal `[DECIDED]`
-- **Otorisasi Nyata di Backend**: Dilarang hanya mengandalkan pengecekan hak akses di frontend. Backend wajib memvalidasi token JWT, kecocokan role, dan kepemilikan resource di setiap request.
-- **Dilarang Fallback ke Data Dummy**: Jika database gagal terkoneksi atau query mengembalikan error, service DILARANG mengembalikan array data dummy statis sebagai respon sukses palsu. Sistem WAJIB mengembalikan status error nyata (misal 500 atau 503) agar anomali dapat terdeteksi dan diatasi.
+## 4. Model Error & Cara Melempar Exception `[DECIDED]`
+
+### Hirarki Error:
+Gunakan kelas error terstandarisasi dari `apps/api/src/shared/errors/index.js`:
+- `BadRequestError(message?, details?)` $\rightarrow$ 400 `BAD_REQUEST`
+- `UnauthorizedError(message?, details?)` $\rightarrow$ 401 `UNAUTHORIZED`
+- `ForbiddenError(message?, details?)` $\rightarrow$ 403 `FORBIDDEN`
+- `NotFoundError(message?, details?)` $\rightarrow$ 404 `NOT_FOUND`
+- `ConflictError(message?, details?)` $\rightarrow$ 409 `CONFLICT`
+- `PayloadTooLargeError(message?, details?)` $\rightarrow$ 413 `PAYLOAD_TOO_LARGE`
+- `UnsupportedMediaTypeError(message?, details?)` $\rightarrow$ 415 `UNSUPPORTED_MEDIA_TYPE`
+- `ValidationError(message?, details?)` $\rightarrow$ 422 `VALIDATION_ERROR`
+- `UnprocessableEntityError(message?, details?)` $\rightarrow$ 422 `UNPROCESSABLE_ENTITY`
+- `TooManyRequestsError(message?, retryAfterSeconds?, details?)` $\rightarrow$ 429 `TOO_MANY_REQUESTS`
+- `InternalServerError(message?, details?)` $\rightarrow$ 500 `INTERNAL_SERVER_ERROR`
+
+### Pola Pemanggilan Handler Asinkron (Express v4):
+Karena Express yang terpasang adalah v4, setiap handler rute asinkron WAJIB dibungkus dengan `asyncHandler`:
+```typescript
+import { asyncHandler, NotFoundError } from '../shared/errors/index.js';
+
+router.get('/:id', asyncHandler(async (req, res) => {
+  const user = await userService.findById(req.params.id);
+  if (!user) {
+    throw new NotFoundError('Pengguna tidak ditemukan');
+  }
+  res.json({ success: true, data: user });
+}));
+```
 
 ---
 
-## 6. Audit Trail & Pencatatan Aktivitas (Activity Logging) `[DECIDED]`
-Setiap aksi penting (registrasi akun, update profil, pergantian sandi, transfer saldo, perubahan status user oleh admin) wajib dicatat secara asinkron ke tabel `activity_logs`:
-- Menyimpan: `user_id`, `action` (misal `'TRANSFER_FUNDS'`), `entity` (`'transfers'`), `entity_id`, metadata ringkas (non-sensitif), dan `ip_address`.
+## 5. Validasi Input & Listing Query Helper `[DECIDED]`
+
+### Validasi Skema via Middleware `validate`:
+```typescript
+import { validate } from '../middlewares/index.js';
+import { z } from 'zod';
+
+const transferSchema = z.object({
+  target_wallet_number: z.string().min(5),
+  amount: z.number().positive('Nominal transfer harus lebih besar dari 0'),
+  note: z.string().max(200).optional(),
+});
+
+router.post('/transfer', validate({ body: transferSchema }), asyncHandler(controller.transfer));
+```
+
+### Parsing Listing Query (Pagination, Sorting Whitelist & Search):
+Dilarang menyusun clause `ORDER BY` dari string input mentah klien. Gunakan helper `parseListingQuery`:
+```typescript
+import { parseListingQuery, createPaginationMeta } from '../shared/utils/index.js';
+
+const ALLOWED_SORT_COLUMNS = ['created_at', 'amount', 'transaction_date'] as const;
+
+router.get('/transactions', asyncHandler(async (req, res) => {
+  const queryParams = parseListingQuery(req.query, {
+    allowedSortColumns: ALLOWED_SORT_COLUMNS,
+    defaultSortColumn: 'transaction_date',
+    defaultSortOrder: 'desc',
+    allowedFilterKeys: ['type', 'category_id'],
+  });
+
+  const { items, totalCount } = await transactionService.list(queryParams);
+
+  res.json({
+    success: true,
+    data: items,
+    meta: createPaginationMeta({
+      page: queryParams.page,
+      limit: queryParams.limit,
+      totalItems: totalCount,
+    }),
+  });
+}));
+```
+
+---
+
+## 6. Standar Keamanan & Larangan Manipulasi Dummy `[DECIDED]`
+- **Otorisasi Nyata di Sisi Server**: Backend memvalidasi hak akses dan kepemilikan data (IDOR guard) di setiap request.
+- **Dilarang Fallback ke Data Dummy**: Kegagalan koneksi database atau query wajib mengembalikan error status nyata (misal 500 atau 503), bukan data tiruan.

@@ -4,10 +4,10 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 
 ---
 
-> ### 🛠️ STATUS PROYEK: PHASE 2 COMPLETED (Database Schema, Migration & Seeder Verified)
-> **Status Saat Ini: Phase 2 — Database Schema, Migration, & Seeder (Selesai & Terverifikasi)**.  
-> Seluruh 13 tabel skema PostgreSQL telah diimplementasikan dengan migrasi dua arah (up & down), constraint integritas ketat (CHECK, NOT NULL, soft-delete aware partial unique indexes, append-only triggers pada ledger), seeder deterministik ($\ge 20$ baris per tabel utama dengan saldo dan transfer balance 100% konsisten), serta 25 automated database integration tests.  
-> **Fitur bisnis, endpoint REST API, auth controller, dan UI akan dibangun di Phase 3 dan seterusnya** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+> ### 🛠️ STATUS PROYEK: PHASE 3 COMPLETED (Backend Foundation, Security & Error Handling Verified)
+> **Status Saat Ini: Phase 3 — Backend Foundation, Configuration & Error Handling (Selesai & Terverifikasi)**.  
+> Pipeline middleware 10 langkah (Request ID, Helmet, CORS whitelist, Rate Limiter 429, Body Parser, Pino structured logging dengan redaksi sensitif, `/health` liveness, `/health/ready` readiness probe, `/api/v1` router modular registry, 404 handler, dan Global Error Handler) telah aktif dan terverifikasi. Seluruh model error (`AppError`), validasi Zod, translasi SQLSTATE PostgreSQL (zero information leakage), helper query listing anti-SQL injection, helper transaksi `withTransaction` dengan isolasi level dan bounded retry, serta graceful shutdown teruji 100% lulus (70 tests Vitest di backend).  
+> **Modul bisnis, autentikasi sesi, dan token RBAC akan dibangun di Phase 4** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
 
 ---
 

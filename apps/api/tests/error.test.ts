@@ -13,6 +13,7 @@ describe('API Error Handling & 404 Route Not Found', () => {
         code: 'NOT_FOUND',
         message: "Rute 'GET /api/v1/non-existent-route-404' tidak ditemukan",
         details: null,
+        requestId: expect.any(String),
       },
     });
   });
