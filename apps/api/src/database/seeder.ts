@@ -43,6 +43,7 @@ export function assertEnvironmentSafety(
  */
 export async function truncateAllTables(client: PoolClient): Promise<void> {
   const tables = [
+    'password_resets',
     'notifications',
     'activity_logs',
     'refresh_tokens',

@@ -1,9 +1,5 @@
 /**
- * Placeholder constants to verify monorepo wiring and typecheck between @wallet-app/shared,
- * @wallet-app/api, and @wallet-app/web.
- *
- * NOTE: These placeholders are temporary for Phase 1 verification and will be replaced
- * with domain entities, types, and Zod schemas in subsequent phases.
+ * Single Source of Truth for shared types, DTOs, and schemas.
  */
 
 export const SHARED_APP_NAME = 'Wallet App';
@@ -19,3 +15,5 @@ export interface HealthCheckPayload {
     latencyMs?: number;
   };
 }
+
+export * from './auth.js';

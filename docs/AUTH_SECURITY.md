@@ -1,120 +1,129 @@
 # AUTH_SECURITY — Kebijakan Autentikasi, Otorisasi & Keamanan Sistem
 
-Dokumen ini mendefinisikan standar keamanan, arsitektur token, perlindungan data finansial, dan mitigasi kerentanan keamanan siber untuk **Wallet App**.
+Dokumen ini mendefinisikan standar keamanan, arsitektur token, manajemen sesi, mitigasi serangan siber, dan kebijakan otorisasi data finansial untuk **Wallet App**.
 
 ---
 
 ## 1. Hashing Password & Manajemen Kredensial `[DECIDED]`
-- **Algoritma**: Menggunakan **Argon2id** (atau **bcrypt** dengan cost factor 12 salt rounds).
-- **Kebijakan Sandi**:
-  - Panjang minimal 8 karakter.
-  - Wajib kombinasi huruf besar, huruf kecil, dan angka.
-- **Penyimpanan**: Hanya hash password yang disimpan di kolom `users.password_hash`. Password dalam format plain-text DILARANG KERAS dicatat dalam log atau disimpan di variabel memori permanen.
+- **Algoritma Utama**: **Argon2id** (via library native `argon2`) dengan parameter aman OWASP:
+  - Memory cost: 65,536 KB (64 MB)
+  - Time cost (iterations): 3
+  - Parallelism: 4 threads
+- **Migrasi Bertahap Kredensial Warisan (Bcrypt Auto-Rehash)**:
+  - Database seeder atau sistem awal mungkin memuat hash `$2a$` / `$2b$` (bcrypt).
+  - Pada setiap proses login yang berhasil, sistem mendeteksi apakah format hash adalah bcrypt. Jika terdeteksi, password diverifikasi menggunakan `bcryptjs`, lalu secara otomatis di-hash ulang menggunakan Argon2id dan disimpan ke database secara transparan tanpa mengganggu pengguna.
+- **Mitigasi Serangan Enumerasi Akun & Timing Attacks**:
+  - Pada endpoint `POST /auth/login`, jika identifier/email tidak terdaftar dalam database, server mengeksekusi *dummy hash verification* menggunakan hash Argon2id standar untuk menjaga durasi kalkulasi CPU identik antara email valid dan email tidak valid.
+  - Respon kegagalan login selalu bernilai generik: `"Email atau kata sandi tidak valid"` (HTTP 401 `UNAUTHORIZED`).
+  - Pada endpoint `POST /auth/forgot-password`, respon server selalu bernilai konstan: `"Jika email terdaftar pada sistem kami, tautan pemulihan kata sandi telah dikirimkan"` (HTTP 200 OK) baik email terdaftar maupun tidak.
+- **Kebijakan Kompleksitas Kata Sandi**:
+  - Panjang minimal 8 karakter, maksimal 72 karakter.
+  - Wajib kombinasi huruf besar (`A-Z`), huruf kecil (`a-z`), dan angka (`0-9`).
+- **Penyimpanan**: Hanya hash password yang disimpan di kolom `users.password_hash`. Password dalam format plain-text DILARANG KERAS dicatat dalam log, dikirim ke klien, atau disimpan di variabel memori permanen.
 
 ---
 
-## 2. Arsitektur Token & Siklus Sesi (JWT + Refresh Token) `[DECIDED]`
-Sistem menerapkan strategi hybrid token untuk mengimbangi kenyamanan dan keamanan:
+## 2. Arsitektur Token & Siklus Sesi (JWT + Opaque Refresh Token) `[DECIDED]`
+Sistem menerapkan strategi hybrid token dengan pemisahan peran yang ketat:
 
 ```
-[ Klien / Browser ]                                      [ Server API ]
-        │                                                      │
-        │ ── 1. POST /auth/login (kredensial) ───────────────> │
-        │ <── 2. Response Body: accessToken (15m) ──────────── │
-        │ <──    Set-Cookie: refreshToken (7d, HttpOnly) ───── │
-        │                                                      │
-        │ ── 3. Request Bisnis + Header Bearer accessToken ──> │
-        │ <── 4. Data Response (200 OK) ────────────────────── │
-        │                                                      │
- (Setelah 15 menit, accessToken Expired)                       │
-        │ ── 5. POST /auth/refresh + Cookie: refreshToken ───> │
-        │ <── 6. accessToken baru + Rotated refreshToken ──── │
+[ Klien / Browser ]                                               [ Server API / DB ]
+        │                                                                  │
+        │ ── 1. POST /api/v1/auth/login (email, password) ───────────────> │
+        │ <── 2. Response: { accessToken, user } (Expires in 15m) ──────── │
+        │ <──    Set-Cookie: refreshToken (7d, HttpOnly, Path=/api/v1/auth)│ (Simpan SHA-256 di DB)
+        │                                                                  │
+        │ ── 3. Request Bisnis + Header "Authorization: Bearer <token>" ─> │
+        │ <── 4. Data Response (200 OK) ────────────────────────────────── │
+        │                                                                  │
+ (15 Menit Kemudian - Access Token Expired)                                │
+        │ ── 5. POST /api/v1/auth/refresh + Cookie: refreshToken ────────> │ (Atomic Rotation with
+        │ <── 6. Response: Access Token baru + Set-Cookie rotated token ── │  SELECT ... FOR UPDATE)
 ```
 
-### Properti Keamanan Cookie Refresh Token:
-- `HttpOnly = true`: Mencegah script berbahaya/XSS membaca nilai refresh token.
-- `Secure = true`: Hanya dikirim melalui koneksi HTTPS (pada mode development dapat disesuaikan via env `NODE_ENV === 'production'`).
-- `SameSite = 'Lax'` (atau `'Strict'`): Mencegah eksploitasi Cross-Site Request Forgery (CSRF).
-- `Path = '/api/v1/auth'`: Membatasi pengiriman cookie hanya ke sub-rute autentikasi.
+### A. Access Token (JWT):
+- **Masa Berlaku**: Singkat (15 menit / 900 detik).
+- **Format**: JSON Web Token (JWT) ditandatangani secara kriptografis menggunakan algoritma `HS256`.
+- **Validasi Ketat**: Verifikasi wajib mencakup `algorithms: ['HS256']`, `issuer: env.JWT_ISSUER`, dan `audience: env.JWT_AUDIENCE`.
+- **Payload Minim**: Memuat klaim standar `sub` (user ID), `role` (`admin` | `user`), `email`, dan `jti` (UUID unik).
+- **Penyimpanan di Klien**: Disimpan secara aman di memori aplikasi JavaScript klien (misal React State / TanStack Query cache). Tidak disimpan di `localStorage` atau `sessionStorage` untuk mencegah pencurian token melalui serangan XSS.
 
-### Rotasi Token & Pencabutan Sesi (Token Revocation):
-- Setiap kali refresh token digunakan pada endpoint `/auth/refresh`, server menerbitkan refresh token baru dan membatalkan (*revoke*) token lama pada tabel `refresh_tokens`.
-- Jika refresh token yang sudah di-revoke terdeteksi digunakan kembali, sistem mendeteksi indikasi pencurian token (*token reuse detection*) dan mencabut seluruh sesi milik pengguna tersebut.
-- Logout resmi menandai kolom `is_revoked = true` pada baris token di database dan menghapus cookie dari browser.
-
----
-
-## 3. Otorisasi Berbasis Peran (RBAC) & Kepemilikan Data (IDOR Prevention) `[DECIDED]`
-1. **Middleware Lapisan 1 (`requireAuth`)**: Memverifikasi validitas tandatangan JWT access token dan menyematkan payload user ke `req.user`.
-2. **Middleware Lapisan 2 (`requireRole(['admin'])`)**: Menolak pengguna yang tidak memiliki peran yang diizinkan dengan status HTTP 403 Forbidden.
-3. **Pemeriksaan Kepemilikan Resource (*Resource Ownership Guard*)**:
-   - Otorisasi tidak boleh berhenti pada peran.
-   - Pada endpoint seperti `GET /transactions/:id`, `PUT /budgets/:id`, atau `DELETE /attachments/:id`, lapisan Service/Repository WAJIB memvalidasi bahwa entitas yang diminta terhubung langsung dengan `req.user.id`:
-     ```typescript
-     // Pencegahan Insecure Direct Object Reference (IDOR)
-     const transaction = await transactionRepo.findByIdAndWalletOwner(id, req.user.id);
-     if (!transaction) {
-       throw new AppError('Transaksi tidak ditemukan atau hak akses ditolak', 404);
-     }
-     ```
-
----
-
-## 4. Keamanan Jaringan & Headers HTTP `[DECIDED]`
-1. **CORS (Cross-Origin Resource Sharing)**:
-   - Dikonfigurasi secara eksplisit hanya mengizinkan origin frontend resmi dari env `CORS_ORIGIN` (dapat memuat koma untuk multi-origin, misal `http://localhost:5173`).
-   - Dilarang keras menggunakan wildcard origin `*` saat `credentials: true`.
-   - Origin tidak dikenal ditolak dengan status HTTP 403 `ORIGIN_NOT_ALLOWED`.
-   - Mengizinkan header: `Content-Type`, `Authorization`, `Idempotency-Key`, `X-Request-Id`.
-   - Mengekspos header: `X-Request-Id`.
-2. **Helmet Security Headers**:
-   - Mematikan header `X-Powered-By`.
-   - Mengaktifkan `X-Content-Type-Options: nosniff`.
-   - Mengaktifkan `X-Frame-Options: SAMEORIGIN`.
-   - Mengatur `Content-Security-Policy (CSP)`.
-   - Konfigurasi `trust proxy` dibaca dari env `TRUST_PROXY`.
+### B. Refresh Token (Opaque Token & Session Family):
+- **Format Token**: Token acak kriptografis 256-bit berentropi tinggi (`crypto.randomBytes(32).toString('hex')`).
+- **Penyimpanan di Database**: Server **TIDAK PERNAH** menyimpan refresh token mentah. Yang disimpan pada tabel `refresh_tokens` HANYA hash kriptografis **SHA-256** (tepat 64 karakter heksadesimal).
+- **Pengiriman ke Klien**: Disimpan di browser pengguna menggunakan HTTP Cookie dengan atribut keamanan maksimal:
+  - `HttpOnly = true`: Tidak dapat diakses oleh skrip sisi klien / JavaScript (kebal eksploitasi pencurian XSS).
+  - `Secure = true`: Wajib aktif di lingkungan produksi (`NODE_ENV === 'production'`) untuk membatasi transmisi hanya melalui koneksi HTTPS.
+  - `SameSite = 'Lax'`: Mencegah pengiriman cookie pada request lintas situs berbahaya (CSRF).
+  - `Path = '/api/v1/auth'`: Membatasi cakupan pengiriman cookie hanya ke sub-rute autentikasi (`/refresh`, `/logout`). Cookie tidak dikirim pada request API bisnis umum lainnya.
+  - `Max-Age = 7 hari` (604,800 detik).
+- **Rotasi Atomik (Atomic Token Rotation)**:
+  - Setiap pemanggilan endpoint `POST /api/v1/auth/refresh`, refresh token yang digunakan langsung dibatalkan (`is_revoked = true`) dan diterbitkan refresh token baru.
+  - Rotasi dieksekusi di dalam database transaction dengan row-level lock (`SELECT ... FOR UPDATE`) untuk mencegah race condition konkurensi request.
+- **Deteksi Penggunaan Ulang Token (Token Reuse Detection)**:
+  - Setiap sesi login memiliki `family_id` (UUID). Seluruh refresh token yang dihasilkan dari rantai rotasi sesi tersebut terhubung ke `family_id` yang sama.
+  - Jika token yang sudah dibatalkan (`is_revoked = true`) terdeteksi dikirim kembali ke endpoint `/refresh`, sistem mengidentifikasi terjadinya kompromi token (pencurian sesi).
+  - Tindakan Mitigasi: Sistem langsung membatalkan **SELURUH** refresh token dalam `family_id` tersebut (`UPDATE refresh_tokens SET is_revoked = true WHERE family_id = $1`), mencatat audit log ancaman keamanan, dan mengembalikan HTTP 401 `UNAUTHORIZED`.
+- **Pencabutan Sesi (Revocation)**:
+  - `POST /api/v1/auth/logout`: Membatalkan refresh token aktif saat ini dan menghapus cookie dari browser.
+  - `POST /api/v1/auth/logout-all`: Membatalkan seluruh refresh token milik pengguna di semua perangkat (`UPDATE refresh_tokens SET is_revoked = true WHERE user_id = $1`).
 
 ---
 
-## 5. Pertahanan Terhadap Serangan Umum
+## 3. Otorisasi Berbasis Peran (RBAC) & Keamanan Rute `[DECIDED]`
 
-### A. SQL Injection `[DECIDED]`
-- Dilarang membuat raw SQL query dengan konkatenasi string bebas.
-- Seluruh query database WAJIB menggunakan query berparameter (*parameterized queries* / `$1, $2`).
-- Parameter pengurutan (`sort_by`) dan filter listing diperiksa secara ketat terhadap whitelist kolom per modul (`parseListingQuery`). Input non-whitelist ditolak dengan HTTP 400.
+### A. Lapisan Middleware Autentikasi (`authenticate`)
+- Mengekstrak Bearer token dari header `Authorization`.
+- Memverifikasi integritas dan masa berlaku JWT.
+- **Verifikasi Real-time Status Pengguna di Database**:
+  - Walaupun JWT masih berlaku (belum expired), middleware selalu memeriksa status pengguna di database.
+  - Jika pengguna dinonaktifkan (`is_active = false`) atau telah dihapus secara soft-delete (`deleted_at IS NOT NULL`), request langsung ditolak dengan HTTP 401 `UNAUTHORIZED`. Hak akses dicabut seketika tanpa menunggu masa berlaku token 15 menit habis.
+- Menyematkan profil pengguna ke `req.user` (`id`, `role`, `email`, `username`).
 
-### B. Cross-Site Scripting (XSS) `[DECIDED]`
-- Frontend React secara default melakukan *output encoding* pada rendering JSX. Dilarang menggunakan `dangerouslySetInnerHTML`.
-- Backend melakukan sanitasi input dan validasi skema ketat (Zod) untuk menolak payload script berbahaya.
+### B. Lapisan Otorisasi Peran (`requireRole`)
+- Menegakkan kontrol akses berbasis peran (`admin` vs `user`).
+- Jika pengguna terotentikasi tidak memiliki peran yang dipersyaratkan, request ditolak dengan HTTP 403 `FORBIDDEN` dan kode error `FORBIDDEN`.
 
-### C. Rate Limiting `[DECIDED]`
-- Menggunakan middleware `express-rate-limit` dengan standard envelope `{ success: false, error: { code: 'TOO_MANY_REQUESTS', message, details: null, requestId } }` dan header `Retry-After`:
-  - Global API: Default 100 request per 15 menit per IP (dikonfigurasi via `RATE_LIMIT_WINDOW_MS` & `RATE_LIMIT_MAX_REQUESTS`).
-  - Factory `createRateLimiter`: Tersedia di `apps/api/src/middlewares/rate-limiter.middleware.ts` untuk diaplikasikan ke endpoint autentikasi (`/auth/login`, `/auth/register`) pada Phase 4.
+### C. Pencegahan IDOR (*Insecure Direct Object Reference*) via `assertOwnerOrAdmin`
+- Menjamin isolasi data antar-pengguna pada rute resource berparameter (`/users/:id`, `/wallets/:id`, dll.).
+- Pengguna hanya diizinkan mengakses resource miliknya sendiri, kecuali jika memiliki peran `admin`. Akses tidak sah ditolak dengan HTTP 403 `FORBIDDEN`.
 
-### D. Keamanan File Upload `[DECIDED]`
-- **Ukuran File**: Dibatasi maksimal 2MB per berkas.
-- **Validasi MIME**: Hanya mengizinkan `image/jpeg`, `image/png`, dan `application/pdf`.
-- **Validasi Magic Bytes**: Backend memeriksa signature file mentah (*magic bytes*), bukan hanya ekstensi berkas kiriman klien.
-- **Penyimpanan Aman**: Nama berkas di-generate ulang menggunakan UUID acak (`<uuid>.<ext>`) untuk memitigasi *Path Traversal* dan eksekusi skrip ilegal di server.
-- Berkas diunggah disimpan di direktori luar jangkauan eksekusi publik langsung dan dilayani lewat streaming terotentikasi.
+### D. Structural Route Policy Guard (`routePolicyGuard`)
+- Memastikan tidak ada endpoint API baru yang tertinggal atau tidak sengaja terekspos tanpa perlindungan otentikasi/otorisasi yang eksplisit.
+- Seluruh rute di bawah `/api/v1` didaftarkan secara deklaratif pada `ROUTE_POLICY_REGISTRY` (`public`, `authenticated`, `admin_only`, `owner_or_admin`).
+- Pengujian otomatis memindai seluruh router Express stack dan memastikan setiap rute terdaftar dalam registry.
 
 ---
 
-## 6. Pengelolaan Secret & Sanitasi Log (Pino Redaction) `[DECIDED]`
-- Secret JWT, kredensial database, dan konfigurasi sensitif hanya dibaca dari environment variable yang divalidasi fail-fast oleh Zod saat startup server (`apps/api/src/config/env.ts`).
-- Menggunakan structured logger **Pino** dengan redaksi otomatis (*deep path redaction*):
+## 4. Perlindungan Terhadap Serangan CSRF `[DECIDED]`
+Meskipun cookie refresh token dilindungi oleh `SameSite=Lax`, sistem menerapkan pertahanan berlapis (*Defense in Depth*) pada endpoint mutasi sesi `POST /api/v1/auth/refresh` dan `POST /api/v1/auth/logout`:
+1. **Validasi Origin & Referer**: Request lintas origin diverifikasi terhadap whitelist origin `CORS_ORIGIN`. Request dari origin asing ditolak dengan HTTP 403 `ORIGIN_NOT_ALLOWED`.
+2. **Kewajiban Custom Header**: Request mutasi yang menggunakan cookie wajib menyertakan custom header (misal `X-Requested-With: XMLHttpRequest` atau `Authorization`). Permintaan lintas situs standar (seperti form submission browser) tidak dapat menyematkan custom header tanpa persetujuan preflight CORS.
+
+---
+
+## 5. Alur Pemulihan Kata Sandi (Password Reset Flow) `[DECIDED]`
+1. Pengguna meminta tautan reset sandi via `POST /api/v1/auth/forgot-password` dengan mengirimkan email.
+2. Server membuat token acak kriptografis 256-bit (`crypto.randomBytes(32).toString('hex')`).
+3. Hash SHA-256 dari token disimpan pada tabel `password_resets` beserta masa berlaku (`PASSWORD_RESET_EXPIRES_MINUTES`, default 15 menit).
+4. **Pencegahan Host Header Poisoning**: Tautan reset kata sandi (`${env.APP_BASE_URL}/reset-password?token=${token}`) dibangun strictly menggunakan konfigurasi server `APP_BASE_URL`. Server **DILARANG KERAS** menggunakan header `Host` atau `X-Forwarded-Host` dari klien untuk merangkai tautan email.
+5. **Transpor Email Dev vs Prod**:
+   - Pada mode development/test (`MAIL_TRANSPORT=outbox`), surat elektronik ditulis ke direktori lokal terisolasi `apps/api/.outbox/` dalam format JSON dan terdaftar di `.gitignore`.
+   - Pada mode production, konfigurasi SMTP diverifikasi secara fail-fast saat startup server.
+6. Pengguna mengeksekusi reset kata sandi via `POST /api/v1/auth/reset-password` dengan token dan `new_password`.
+7. Server memvalidasi token (belum kedaluwarsa dan `is_used = false`), mengupdate hash password baru dengan Argon2id, menandai token sebagai digunakan (`is_used = true`), dan mencabut **SEMUA** sesi aktif pengguna tersebut (`UPDATE refresh_tokens SET is_revoked = true WHERE user_id = $1`) demi keamanan.
+
+---
+
+## 6. Pembersihan Token Berkala (Token Cleanup Maintenance) `[DECIDED]`
+- Refresh token dan password reset record yang kedaluwarsa atau telah dibatalkan dibersihkan secara berkala untuk menjaga performa indeks database.
+- Skrip pemeliharaan CLI tersedia melalui `pnpm db:cleanup-tokens` (`apps/api/src/database/scripts/cleanup-tokens.ts`) yang dapat dijalankan secara terjadwal (cron job).
+
+---
+
+## 7. Sanitasi Log & Pengelolaan Secret `[DECIDED]`
+- Kredensial dan secret JWT divalidasi saat inisialisasi aplikasi via Zod schema (`apps/api/src/config/env.ts`). Jika secret menggunakan nilai default/placeholder di lingkungan produksi, server langsung crash saat startup (*fail-fast*).
+- Structured logger **Pino** melakukan sensor otomatis (*deep redacting*) terhadap nilai sensitif:
   - Header: `authorization`, `cookie`, `set-cookie`.
-  - Field objek: `password`, `token`, `refreshToken`, `accessToken`, `secret` (dan seluruh nested property turunannya) disensor menjadi `[REDACTED]`.
-  - Body request **tidak pernah** dicatat ke log default.
-
----
-
-## 7. Hal yang Masih Terbuka & Rekomendasi `[OPEN]`
-- **OPEN-SEC-01**: Resolusi CSRF via Origin Whitelist & Idempotency-Key. (*Accepted pada ADR-023*).
-- **OPEN-RATE-01**: *In-Memory Store Rate Limiting vs Distributed Store (Redis)*.  
-  *Analisis*: Pada deployment multi-instance / horizontal scaling, `express-rate-limit` in-memory store hanya membatasi request per proses container dan tidak tersinkronisasi antar-instance.  
-  *Rekomendasi*: Untuk lingkungan evaluasi dan single-instance development, in-memory store memadai dan minim dependensi. Jika dideploy ke cluster produksi multi-instance di masa depan, ganti store ke `rate-limit-redis`.
-- **OPEN-ERR-01**: *Penyertaan `requestId` di Error Payload*.  
-  *Analisis*: Menyertakan `requestId` dalam objek `error` (`{ success: false, error: { code, message, details, requestId } }`) mempermudah debugging dan pelaporan insiden oleh klien.  
-  *Rekomendasi*: Disahkan sebagai standar payload error di Phase 3 dan diperbarui pada `API_CONTRACT.md`.
+  - Properti: `password`, `token`, `refreshToken`, `accessToken`, `secret`, `new_password`, `current_password`.
+  - Body request tidak pernah dicatat dalam log produksi.

@@ -118,11 +118,15 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 ### Modul 1: Autentikasi (`/api/v1/auth`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/auth/register` | Public | Body: `username`, `email`, `password`, `full_name` | 201, 400, 409, 422 | `users`, `wallets` | `PLANNED` |
-| `POST` | `/auth/login` | Public | Body: `email`, `password` | 200, 401, 422 | `users`, `refresh_tokens` | `PLANNED` |
-| `POST` | `/auth/refresh` | Public | Cookie: `refreshToken` | 200, 401 | `users`, `refresh_tokens` | `PLANNED` |
-| `POST` | `/auth/logout` | User, Admin | Cookie: `refreshToken` | 200, 401 | `refresh_tokens` | `PLANNED` |
-| `GET` | `/auth/me` | User, Admin | Header: `Bearer <token>` | 200, 401 | `users` | `PLANNED` |
+| `POST` | `/auth/register` | Public | Body: `username`, `email`, `password`, `full_name` | 201, 400, 409, 422 | `users`, `activity_logs` | `VERIFIED` |
+| `POST` | `/auth/login` | Public | Body: `email`, `password` | 200, 401, 422 | `users`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
+| `POST` | `/auth/refresh` | Public | Cookie: `refreshToken`, Header: `X-Requested-With` | 200, 401 | `users`, `refresh_tokens` | `VERIFIED` |
+| `POST` | `/auth/logout` | Public | Cookie: `refreshToken`, Header: `X-Requested-With` | 200, 401 | `refresh_tokens` | `VERIFIED` |
+| `POST` | `/auth/logout-all` | User, Admin | Header: `Bearer <token>` | 200, 401 | `refresh_tokens` | `VERIFIED` |
+| `GET` | `/auth/me` | User, Admin | Header: `Bearer <token>` | 200, 401 | `users` | `VERIFIED` |
+| `POST` | `/auth/change-password` | User, Admin | Header: `Bearer <token>`, Body: `current_password`, `new_password` | 200, 400, 401, 422 | `users`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
+| `POST` | `/auth/forgot-password` | Public | Body: `email` | 200, 422 | `users`, `password_resets`, `activity_logs` | `VERIFIED` |
+| `POST` | `/auth/reset-password` | Public | Body: `token`, `new_password` | 200, 400, 422 | `users`, `password_resets`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
 
 ### Modul 2: Profil & Pengguna (`/api/v1/users`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |

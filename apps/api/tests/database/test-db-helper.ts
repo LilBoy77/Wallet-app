@@ -103,6 +103,7 @@ export async function cleanTestTables(): Promise<void> {
   const client = await pool.connect();
   try {
     const tables = [
+      'password_resets',
       'notifications',
       'activity_logs',
       'refresh_tokens',

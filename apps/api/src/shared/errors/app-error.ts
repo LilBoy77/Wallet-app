@@ -55,8 +55,19 @@ export class UnauthorizedError extends AppError {
  * 403 Forbidden
  */
 export class ForbiddenError extends AppError {
-  constructor(message = 'Akses ke sumber daya ini ditolak', details?: unknown) {
-    super(message, 403, ERROR_CODES.FORBIDDEN, details);
+  constructor(
+    message = 'Akses ke sumber daya ini ditolak',
+    codeOrDetails: unknown = ERROR_CODES.FORBIDDEN,
+    details?: unknown
+  ) {
+    if (
+      typeof codeOrDetails === 'string' &&
+      (Object.values(ERROR_CODES) as string[]).includes(codeOrDetails)
+    ) {
+      super(message, 403, codeOrDetails as ErrorCode, details);
+    } else {
+      super(message, 403, ERROR_CODES.FORBIDDEN, codeOrDetails);
+    }
   }
 }
 
@@ -73,8 +84,19 @@ export class NotFoundError extends AppError {
  * 409 Conflict
  */
 export class ConflictError extends AppError {
-  constructor(message = 'Terjadi konflik data atau sumber daya sudah ada', details?: unknown) {
-    super(message, 409, ERROR_CODES.CONFLICT, details);
+  constructor(
+    message = 'Terjadi konflik data atau sumber daya sudah ada',
+    codeOrDetails: unknown = ERROR_CODES.CONFLICT,
+    details?: unknown
+  ) {
+    if (
+      typeof codeOrDetails === 'string' &&
+      (Object.values(ERROR_CODES) as string[]).includes(codeOrDetails)
+    ) {
+      super(message, 409, codeOrDetails as ErrorCode, details);
+    } else {
+      super(message, 409, ERROR_CODES.CONFLICT, codeOrDetails);
+    }
   }
 }
 

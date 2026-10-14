@@ -12,9 +12,9 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 | **Phase 0** | AI Foundation & Project Governance | **COMPLETED** |
 | **Phase 1** | Monorepo Bootstrap & Tooling Setup | **COMPLETED (Verified)** |
 | **Phase 2** | Database Schema, Migration & Seeder | **COMPLETED (Verified)** |
-| **Phase 3** | Backend Foundation, Configuration & Error Handling | `PENDING (Next Up)` |
-| **Phase 4** | Authentication, Session, Cookie & RBAC | `PENDING` |
-| **Phase 5** | Wallet, Transaction & Transfer Business Logic | `PENDING` |
+| **Phase 3** | Backend Foundation, Configuration & Error Handling | **COMPLETED (Verified)** |
+| **Phase 4** | Authentication, Session, Cookie & RBAC | **COMPLETED (Verified)** |
+| **Phase 5** | Wallet, Transaction & Transfer Business Logic | `PENDING (Next Up)` |
 | **Phase 6** | Categories, Budgets, Attachments & Activity Logs | `PENDING` |
 | **Phase 7** | Frontend Foundation, Design System & Routing | `PENDING` |
 | **Phase 8** | Dashboard Integration & Core CRUD Modules | `PENDING` |

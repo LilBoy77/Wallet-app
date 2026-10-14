@@ -20,6 +20,8 @@ out/
 # Uploads & User Generated Files
 uploads/*
 !uploads/.gitkeep
+.outbox/
+apps/api/.outbox/
 
 # Logs
 logs/

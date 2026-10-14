@@ -188,3 +188,55 @@ router.get('/transactions', asyncHandler(async (req, res) => {
 ## 6. Standar Keamanan & Larangan Manipulasi Dummy `[DECIDED]`
 - **Otorisasi Nyata di Sisi Server**: Backend memvalidasi hak akses dan kepemilikan data (IDOR guard) di setiap request.
 - **Dilarang Fallback ke Data Dummy**: Kegagalan koneksi database atau query wajib mengembalikan error status nyata (misal 500 atau 503), bukan data tiruan.
+
+---
+
+## 7. Autentikasi, RBAC & Route Policy Guard `[DECIDED]`
+
+### A. Memproteksi Rute Terotentikasi (`authenticate`)
+Gunakan middleware `authenticate` (dibungkus `asyncHandler`) pada rute yang membutuhkan sesi login pengguna:
+```typescript
+import { authenticate } from '../middlewares/index.js';
+import { asyncHandler } from '../shared/errors/index.js';
+
+router.get('/profile', asyncHandler(authenticate), asyncHandler(controller.getProfile));
+```
+Middleware ini:
+1. Mengekstrak dan memverifikasi JWT access token (`HS256`, `iss`, `aud`).
+2. Melakukan query status pengguna ke database secara real-time (`is_active = true` dan `deleted_at IS NULL`). Jika akun dinonaktifkan, request langsung ditolak dengan HTTP 401 `UNAUTHORIZED`.
+3. Menyematkan objek pengguna ke `req.user` (`id`, `role`, `email`, `username`).
+
+### B. Membatasi Hak Akses Berdasarkan Peran (`requireRole`)
+Pasang middleware `requireRole` setelah `authenticate`:
+```typescript
+import { authenticate, requireRole } from '../middlewares/index.js';
+
+router.get('/admin/audit-logs', asyncHandler(authenticate), requireRole('admin'), asyncHandler(controller.getLogs));
+```
+
+### C. Mencegah IDOR via Kepemilikan Resource (`assertOwnerOrAdmin`)
+Untuk rute yang memanipulasi resource berparameter (misal `/users/:userId` atau `/wallets/:walletId`), periksa kepemilikan data menggunakan helper `assertOwnerOrAdmin`:
+```typescript
+import { assertOwnerOrAdmin } from '../middlewares/index.js';
+
+router.get('/users/:userId', asyncHandler(authenticate), asyncHandler(async (req, res) => {
+  // Hanya pemilik data atau admin yang diizinkan mengakses
+  assertOwnerOrAdmin(req.user, req.params.userId);
+
+  const data = await userService.getUser(req.params.userId);
+  res.json({ success: true, data });
+}));
+```
+
+### D. Pendaftaran Kebijakan Rute Terpusat (`ROUTE_POLICY_REGISTRY`)
+Setiap endpoint baru yang didaftarkan di bawah `/api/v1` WAJIB didaftarkan kebijakannya pada `ROUTE_POLICY_REGISTRY` di `apps/api/src/middlewares/route-policy.guard.ts`:
+```typescript
+export const ROUTE_POLICY_REGISTRY: RoutePolicy[] = [
+  { method: 'POST', path: '/auth/register', access: 'public' },
+  { method: 'GET', path: '/auth/me', access: 'authenticated' },
+  { method: 'GET', path: '/admin/users', access: 'admin_only', roles: ['admin'] },
+  // ...
+];
+```
+Pengujian otomatis struktural (`tests/auth/rbac-and-policy.test.ts`) akan memindai router Express stack dan memverifikasi tidak ada rute yang tidak terdaftar dalam registry.
+

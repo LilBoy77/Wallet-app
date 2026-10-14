@@ -4,10 +4,10 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 
 ---
 
-> ### 🛠️ STATUS PROYEK: PHASE 3 COMPLETED (Backend Foundation, Security & Error Handling Verified)
-> **Status Saat Ini: Phase 3 — Backend Foundation, Configuration & Error Handling (Selesai & Terverifikasi)**.  
-> Pipeline middleware 10 langkah (Request ID, Helmet, CORS whitelist, Rate Limiter 429, Body Parser, Pino structured logging dengan redaksi sensitif, `/health` liveness, `/health/ready` readiness probe, `/api/v1` router modular registry, 404 handler, dan Global Error Handler) telah aktif dan terverifikasi. Seluruh model error (`AppError`), validasi Zod, translasi SQLSTATE PostgreSQL (zero information leakage), helper query listing anti-SQL injection, helper transaksi `withTransaction` dengan isolasi level dan bounded retry, serta graceful shutdown teruji 100% lulus (70 tests Vitest di backend).  
-> **Modul bisnis, autentikasi sesi, dan token RBAC akan dibangun di Phase 4** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+> ### 🛠️ STATUS PROYEK: PHASE 4 COMPLETED (Authentication, Session, Cookie & RBAC Verified)
+> **Status Saat Ini: Phase 4 — Authentication, Session, Cookie & RBAC (Selesai & Terverifikasi)**.  
+> Seluruh sistem autentikasi, manajemen sesi hybrid, dan kontrol akses berbasis peran telah aktif dan teruji 100% (116 automated tests di 27 test files). Fitur mencakup: hashing password Argon2id dengan auto-rehash legacy bcrypt, mitigasi timing attacks via dummy hash verification, JWT short-lived (15m, HS256) di memory klien, opaque refresh token (256-bit) yang disimpan sebagai hash SHA-256 di basis data, HTTP-only SameSite=Lax cookie, rotasi token atomik dengan row-locking (`SELECT ... FOR UPDATE`), deteksi pencurian token dengan pembatalan seluruh session family, alur forgot & reset password dengan email outbox lokal (`.outbox/`) kebal Host Header Poisoning, real-time user database check pada middleware `authenticate`, otorisasi peran `requireRole`, pencegahan IDOR via `assertOwnerOrAdmin`, deklarasi kebijakan rute struktural (`routePolicyGuard`), serta skrip maintenance `pnpm db:cleanup-tokens`.  
+> **Modul logika bisnis dompet, transaksi, dan transfer saldo internal akan dibangun pada Phase 5** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
 
 ---
 

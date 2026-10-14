@@ -10,44 +10,124 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../../../../.env') });
 dotenv.config();
 
-export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  API_PORT: z.coerce.number().int().positive().default(5000),
-  CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required').default('http://localhost:5173'),
-  DATABASE_URL: z
-    .string()
-    .min(1, 'DATABASE_URL is required')
-    .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
-      message: 'DATABASE_URL must be a valid PostgreSQL connection URL',
-    }),
-  TEST_DATABASE_URL: z
-    .string()
-    .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
-      message: 'TEST_DATABASE_URL must be a valid PostgreSQL connection URL',
-    })
-    .default('postgresql://postgres:change_me_local_only@localhost:5432/wallet_test'),
-  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-  BODY_SIZE_LIMIT: z.string().default('1mb'),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000), // 15 mins
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
-  TRUST_PROXY: z
-    .preprocess(
-      (val) => {
-        if (typeof val === 'string') {
-          const lower = val.trim().toLowerCase();
-          if (lower === 'true') return true;
-          if (lower === 'false') return false;
-          const num = Number(val);
-          if (!isNaN(num)) return num;
+export const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+    API_PORT: z.coerce.number().int().positive().default(5000),
+    CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required').default('http://localhost:5173'),
+    DATABASE_URL: z
+      .string()
+      .min(1, 'DATABASE_URL is required')
+      .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
+        message: 'DATABASE_URL must be a valid PostgreSQL connection URL',
+      }),
+    TEST_DATABASE_URL: z
+      .string()
+      .refine((val) => val.startsWith('postgresql://') || val.startsWith('postgres://'), {
+        message: 'TEST_DATABASE_URL must be a valid PostgreSQL connection URL',
+      })
+      .default('postgresql://postgres:change_me_local_only@localhost:5432/wallet_test'),
+    LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+    BODY_SIZE_LIMIT: z.string().default('1mb'),
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000), // 15 mins
+    RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(100),
+    TRUST_PROXY: z
+      .preprocess(
+        (val) => {
+          if (typeof val === 'string') {
+            const lower = val.trim().toLowerCase();
+            if (lower === 'true') return true;
+            if (lower === 'false') return false;
+            const num = Number(val);
+            if (!isNaN(num)) return num;
+          }
+          return val;
+        },
+        z.union([z.boolean(), z.number().int().nonnegative()])
+      )
+      .default(false),
+    SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000), // 10s
+    PAGINATION_MAX_LIMIT: z.coerce.number().int().positive().default(100),
+
+    // Phase 4: Authentication & Security Configuration
+    JWT_ACCESS_SECRET: z
+      .string()
+      .min(32, 'JWT_ACCESS_SECRET must be at least 32 characters')
+      .default('dev_insecure_jwt_access_secret_key_32_chars_minimum_wallet_app'),
+    JWT_REFRESH_SECRET: z
+      .string()
+      .min(32, 'JWT_REFRESH_SECRET must be at least 32 characters')
+      .default('dev_insecure_jwt_refresh_secret_key_32_chars_minimum_wallet_app'),
+    JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
+    JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+    JWT_ISSUER: z.string().default('wallet-app-api'),
+    JWT_AUDIENCE: z.string().default('wallet-app-client'),
+    APP_BASE_URL: z
+      .string()
+      .url('APP_BASE_URL must be a valid URL')
+      .default('http://localhost:5173'),
+    PASSWORD_RESET_EXPIRES_MINUTES: z.coerce.number().int().positive().default(15),
+    ARGON2_MEMORY_COST: z.coerce.number().int().positive().default(65536),
+    ARGON2_TIME_COST: z.coerce.number().int().positive().default(3),
+    ARGON2_PARALLELISM: z.coerce.number().int().positive().default(4),
+    MAIL_TRANSPORT: z.enum(['outbox', 'smtp']).default('outbox'),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().optional(),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.NODE_ENV === 'production') {
+      const placeholders = [
+        'change_me',
+        'secret',
+        'placeholder',
+        'default',
+        'your-super-secret',
+        'insecure',
+        'dev_insecure',
+      ];
+
+      for (const p of placeholders) {
+        if (data.JWT_ACCESS_SECRET.toLowerCase().includes(p)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['JWT_ACCESS_SECRET'],
+            message: 'In production, JWT_ACCESS_SECRET must not use default or placeholder values',
+          });
+          break;
         }
-        return val;
-      },
-      z.union([z.boolean(), z.number().int().nonnegative()])
-    )
-    .default(false),
-  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().positive().default(10000), // 10s
-  PAGINATION_MAX_LIMIT: z.coerce.number().int().positive().default(100),
-});
+      }
+
+      for (const p of placeholders) {
+        if (data.JWT_REFRESH_SECRET.toLowerCase().includes(p)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['JWT_REFRESH_SECRET'],
+            message: 'In production, JWT_REFRESH_SECRET must not use default or placeholder values',
+          });
+          break;
+        }
+      }
+
+      if (data.MAIL_TRANSPORT === 'outbox') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['MAIL_TRANSPORT'],
+          message:
+            "MAIL_TRANSPORT cannot be 'outbox' in production. Valid SMTP configuration is required.",
+        });
+      }
+
+      if (data.MAIL_TRANSPORT === 'smtp' && !data.SMTP_HOST) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SMTP_HOST'],
+          message: "SMTP_HOST is required when MAIL_TRANSPORT is 'smtp'",
+        });
+      }
+    }
+  });
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
@@ -98,6 +178,18 @@ try {
       TRUST_PROXY: false,
       SHUTDOWN_TIMEOUT_MS: 10000,
       PAGINATION_MAX_LIMIT: 100,
+      JWT_ACCESS_SECRET: 'test_jwt_access_secret_key_32_chars_minimum_wallet_app',
+      JWT_REFRESH_SECRET: 'test_jwt_refresh_secret_key_32_chars_minimum_wallet_app',
+      JWT_ACCESS_EXPIRES_IN: '15m',
+      JWT_REFRESH_EXPIRES_IN: '7d',
+      JWT_ISSUER: 'wallet-app-api',
+      JWT_AUDIENCE: 'wallet-app-client',
+      APP_BASE_URL: 'http://localhost:5173',
+      PASSWORD_RESET_EXPIRES_MINUTES: 15,
+      ARGON2_MEMORY_COST: 65536,
+      ARGON2_TIME_COST: 3,
+      ARGON2_PARALLELISM: 4,
+      MAIL_TRANSPORT: 'outbox',
     };
   } else {
     throw err;

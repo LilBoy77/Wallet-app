@@ -26,7 +26,8 @@
     "db:status": "pnpm --filter @wallet-app/api db:status",
     "db:seed": "pnpm --filter @wallet-app/api db:seed",
     "db:reset": "pnpm --filter @wallet-app/api db:reset",
-    "db:verify": "pnpm --filter @wallet-app/api db:verify"
+    "db:verify": "pnpm --filter @wallet-app/api db:verify",
+    "db:cleanup-tokens": "pnpm --filter @wallet-app/api db:cleanup-tokens"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

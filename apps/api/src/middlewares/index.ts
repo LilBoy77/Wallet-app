@@ -5,3 +5,7 @@ export * from './validator.middleware.js';
 export * from './logging.middleware.js';
 export * from './not-found.middleware.js';
 export * from './error-handler.middleware.js';
+export * from './authenticate.middleware.js';
+export * from './authorize.middleware.js';
+export * from './csrf-protection.middleware.js';
+export * from './route-policy.guard.js';

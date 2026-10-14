@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { env } from '../config/env.js';
 import { ERROR_CODES } from '../shared/errors/error-catalog.js';
@@ -7,6 +8,7 @@ export interface RateLimiterFactoryOptions {
   max?: number;
   message?: string;
   skipFailedRequests?: boolean;
+  keyGenerator?: (req: Request, res: Response) => string;
 }
 
 /**
@@ -25,6 +27,8 @@ export function createRateLimiter(options: RateLimiterFactoryOptions = {}) {
     limit: max,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: options.keyGenerator,
+    validate: { keyGeneratorIpFallback: false },
     skipFailedRequests: options.skipFailedRequests ?? false,
     handler: (req, res) => {
       // Calculate remaining retry-after seconds

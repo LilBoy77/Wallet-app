@@ -347,10 +347,72 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 
 ---
 
-### ADR-030: Penanganan Route Handler Asinkron pada Express v4 via Wrapper (`asyncHandler`)
-- **Konteks**: Express yang terpasang adalah versi `4.22.3` yang tidak menangani unhandled Promise rejection secara otomatis.
-- **Keputusan**: Menggunakan wrapper utilitas **`asyncHandler(fn)`** pada setiap route handler asinkron di Express.
-- **Alasan**: Mencegah request hang atau proses Node.js crash tanpa penanganan global error handler Express.
+---
+
+### ADR-031: Algoritma Hashing Kredensial (Argon2id) & Migrasi Transparan Otomatis (Bcrypt Auto-Rehash)
+- **Konteks**: Diperlukan algoritma hashing kata sandi tahan serangan GPU/ASIC untuk seluruh pengguna baru dan mekanisme migrasi aman untuk seeder awal yang menggunakan bcrypt.
+- **Keputusan**:
+  1. Menggunakan **Argon2id** (native `argon2`) sebagai algoritma standar dengan parameter aman OWASP (memoryCost: 65,536 KB, timeCost: 3, parallelism: 4).
+  2. Menerapkan verifikasi password adaptif: mendeteksi awalan hash (`$argon2id$` vs `$2a$` / `$2b$`). Jika terdeteksi hash bcrypt, server memverifikasi password dengan `bcryptjs`, lalu secara otomatis meng-hash ulang menggunakan Argon2id dan memperbarui database saat login sukses tanpa memerlukan tindakan manual dari pengguna.
 - **Status**: `accepted`
+
+---
+
+### ADR-032: Arsitektur Sesi Hybrid (JWT Short-Lived + Opaque Refresh Token Berbasis SHA-256 Hash)
+- **Konteks**: Keseimbangan antara skalabilitas otentikasi tanpa database query berat dan kemampuan pembatalan sesi instan (*session revocation*).
+- **Keputusan**:
+  1. **Access Token**: JWT berumur pendek (15 menit), ditandatangani algoritma `HS256`, disimpan di memori klien (React memory).
+  2. **Refresh Token**: Opaque token acak berentropi tinggi 256-bit (`crypto.randomBytes(32)`), dikirimkan via HTTP-only Cookie (`SameSite=Lax`, `Path=/api/v1/auth`, `Secure` in production).
+  3. **Penyimpanan Database**: Token mentah **TIDAK PERNAH** disimpan di basis data. Kolom `refresh_tokens.token_hash` hanya menyimpan nilai hash **SHA-256** (tepat 64 karakter heksadesimal).
+- **Status**: `accepted`
+
+---
+
+### ADR-033: Mekanisme Rotasi Token Atomik & Deteksi Pencurian Sesi (Family Invalidation with Row-Level Locking)
+- **Konteks**: Mencegah pencurian refresh token dan race condition pada request konkurensi tinggi.
+- **Keputusan**:
+  1. Rotasi token dieksekusi dalam database transaction dengan row-level lock (`SELECT ... FOR UPDATE`) pada `refresh_tokens`.
+  2. Seluruh token dalam rantai rotasi sesi yang sama diikat oleh `family_id` (UUID).
+  3. Jika refresh token yang telah dibatalkan (`is_revoked = true`) dikirim kembali (*token reuse*), transaksi secara atomik membatalkan **SELURUH** sesi dalam `family_id` tersebut (`UPDATE refresh_tokens SET is_revoked = true WHERE family_id = $1`), mencatat audit log, dan mengembalikan HTTP 401 `UNAUTHORIZED`.
+- **Status**: `accepted`
+
+---
+
+### ADR-034: Mitigasi Enumerasi Akun & Serangan Waktu (Constant-Time Dummy Hash Verification)
+- **Konteks**: Penyerang dapat mengetahui apakah suatu email terdaftar atau tidak dengan mengukur perbedaan waktu eksekusi CPU (*timing attack*) pada endpoint login.
+- **Keputusan**:
+  1. Pada endpoint `POST /api/v1/auth/login`, jika email tidak ditemukan di database, server mengeksekusi *dummy Argon2id hash verification* terhadap hash tiruan yang valid untuk menyamakan profil waktu CPU.
+  2. Pesan kegagalan login selalu identik: `"Email atau kata sandi tidak valid"` (HTTP 401).
+  3. Endpoint `POST /api/v1/auth/forgot-password` selalu mengembalikan respons konstan HTTP 200 OK dengan pesan netral terlepas dari apakah email terdaftar atau tidak.
+- **Status**: `accepted`
+
+---
+
+### ADR-035: Structural Route Policy Guard & Verifikasi Status Real-time Pengguna di Database
+- **Konteks**: Mencegah endpoint baru tertinggal tanpa perlindungan otentikasi serta mencegah pengguna yang telah diblokir/dihapus tetap bisa mengakses API selama sisa masa berlaku JWT (15 menit).
+- **Keputusan**:
+  1. Middleware `authenticate` selalu memvalidasi status pengguna di database (`is_active = true` dan `deleted_at IS NULL`) pada setiap request terotentikasi. Akun yang dinonaktifkan langsung diblokir seketika.
+  2. Menerapkan `routePolicyGuard` dengan `ROUTE_POLICY_REGISTRY` deklaratif. Tes otomatis memindai seluruh router Express dan menggagalkan build jika terdapat rute yang tidak memiliki deklarasi kebijakan otentikasi eksplisit.
+- **Status**: `accepted`
+
+---
+
+### ADR-036: Alur Pemulihan Kata Sandi Aman & Proteksi Terhadap Host Header Poisoning
+- **Konteks**: Pembuatan tautan reset kata sandi rawan serangan *Host Header Poisoning* jika server mengambil domain dari header HTTP request klien.
+- **Keputusan**:
+  1. Tautan pemulihan kata sandi dibangun strictly menggunakan konfigurasi server `APP_BASE_URL` dari environment variable. Penggunaan header `Host` atau `X-Forwarded-Host` dari klien dilarang keras.
+  2. Token reset berupa string acak kriptografis 256-bit berumur 15 menit, disimpan sebagai hash SHA-256 pada tabel `password_resets`, dan hanya dapat digunakan satu kali (`is_used = true`).
+  3. Setelah reset berhasil, seluruh refresh token pengguna aktif dibatalkan seketika (`UPDATE refresh_tokens SET is_revoked = true WHERE user_id = $1`).
+- **Status**: `accepted`
+
+---
+
+### ADR-037: Manajemen Outbox Email Lokal pada Lingkungan Non-Produksi & Guard SMTP Produksi
+- **Konteks**: Mengirim email reset kata sandi di lingkungan pengujian/pengembangan tanpa dependensi akun SMTP eksternal.
+- **Keputusan**:
+  1. Pada lingkungan non-produksi (`NODE_ENV !== 'production'`), email ditulis ke berkas JSON di direktori lokal `apps/api/.outbox/` (terdaftar di `.gitignore`).
+  2. Pada lingkungan produksi, konfigurasi `env.ts` menolak nilai `MAIL_TRANSPORT=outbox` saat startup (*fail-fast*) dan mewajibkan konfigurasi SMTP terenkripsi yang valid.
+- **Status**: `accepted`
+
 
 

@@ -15,15 +15,15 @@ Dokumen ini mendefinisikan seluruh kebutuhan fungsional dan non-fungsional proye
 ## 2. Autentikasi Frontend & Backend
 | ID | Deskripsi Kebutuhan | Prioritas | Komponen | Kriteria Penerimaan | Metode Verifikasi | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **REQ-AUTH-01** | Registrasi akun baru dengan validasi username unik, email unik, nama lengkap, dan password kuat (min. 8 karakter, kombinasi huruf & angka) | High | Full-stack | Data tersimpan aman, password di-hash dengan bcrypt/argon2, dompet otomatis diinisialisasi | API test & form validation test | `PLANNED` |
-| **REQ-AUTH-02** | Login pengguna berbasis kredensial menghasilkan access token singkat dan refresh token rotatif yang disimpan dalam HttpOnly cookie | High | Full-stack | Access token dapat digunakan mengakses private route; refresh token otomatis memperbarui access token tanpa re-login paksa | Auth integration test | `PLANNED` |
-| **REQ-AUTH-03** | Mekanisme Logout aman yang mencabut refresh token di database dan membersihkan sesi di klien | High | Full-stack | Token yang dicabut tidak dapat digunakan lagi untuk refresh; pengguna diarahkan ke login | API security test | `PLANNED` |
+| **REQ-AUTH-01** | Registrasi akun baru dengan validasi username unik, email unik, nama lengkap, dan password kuat (min. 8 karakter, kombinasi huruf & angka) | High | Full-stack | Data tersimpan aman, password di-hash dengan Argon2id, audit log dicatat | `tests/auth/register.test.ts` (5 tests) & Zod validation | `VERIFIED` (Backend) |
+| **REQ-AUTH-02** | Login pengguna berbasis kredensial menghasilkan access token singkat dan refresh token rotatif yang disimpan dalam HttpOnly cookie | High | Full-stack | Access token (15m) mengakses private route; refresh token atomik dengan rotasi row-lock dan deteksi reuse | `tests/auth/login.test.ts` & `tests/auth/refresh-rotation-concurrency.test.ts` | `VERIFIED` (Backend) |
+| **REQ-AUTH-03** | Mekanisme Logout aman yang mencabut refresh token di database dan membersihkan sesi di klien | High | Full-stack | Token yang dicabut tidak dapat digunakan lagi untuk refresh; pembatalan seluruh sesi (`logout-all`) | `tests/auth/logout.test.ts` (2 tests) | `VERIFIED` (Backend) |
 
 ## 3. Routing & Role-Based Access Control (RBAC)
 | ID | Deskripsi Kebutuhan | Prioritas | Komponen | Kriteria Penerimaan | Metode Verifikasi | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **REQ-ROUTE-01** | Proteksi route sisi klien (Public, Protected User, Protected Admin) dengan redirection otomatis | High | Frontend | Pengguna tanpa login diarahkan ke `/login`; pengguna non-admin mencoba akses `/admin` diarahkan ke `/dashboard` atau 403 page | React Router route guard test | `PLANNED` |
-| **REQ-ROUTE-02** | Otorisasi ketat berbasis peran di sisi backend (middleware `requireAuth` dan `requireRole`) | High | Backend | Request API tanpa hak akses mengembalikan response standar HTTP 401 Unauthorized atau 403 Forbidden | Backend unit & integration test | `PLANNED` |
+| **REQ-ROUTE-02** | Otorisasi ketat berbasis peran di sisi backend (middleware `authenticate`, `requireRole`, `assertOwnerOrAdmin`, `routePolicyGuard`) | High | Backend | Request API tanpa hak akses mengembalikan response standar HTTP 401 Unauthorized atau 403 Forbidden; status user diverifikasi real-time di DB | `tests/auth/rbac-and-policy.test.ts` (4 tests) | `VERIFIED` (Backend) |
 
 ## 4. Dashboard & Statistik
 | ID | Deskripsi Kebutuhan | Prioritas | Komponen | Kriteria Penerimaan | Metode Verifikasi | Status |

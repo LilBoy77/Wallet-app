@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import { SHARED_API_VERSION, type HealthCheckPayload } from '@wallet-app/shared';
+import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import {
   requestIdMiddleware,
@@ -37,9 +38,10 @@ export function createApp(): Express {
   // Standard 429 response envelope with Retry-After header
   app.use(globalRateLimiter);
 
-  // 5. Body Parsers with Configurable Size Limits
+  // 5. Body Parsers with Configurable Size Limits & Cookie Parser
   app.use(express.json({ limit: env.BODY_SIZE_LIMIT }));
   app.use(express.urlencoded({ extended: true, limit: env.BODY_SIZE_LIMIT }));
+  app.use(cookieParser());
 
   // 6. Structured Request Logging
   // Logs request lifecycle safely with mandatory redaction of authorization, cookie, and secrets

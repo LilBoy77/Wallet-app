@@ -269,3 +269,11 @@ export async function checkDatabaseHealth(): Promise<{ connected: boolean; laten
     return { connected: false, latencyMs: Date.now() - start };
   }
 }
+
+export const pool: pg.Pool = new Proxy({} as pg.Pool, {
+  get: (_target, prop: string | symbol) => {
+    const instance = getPool();
+    const value = Reflect.get(instance, prop);
+    return typeof value === 'function' ? value.bind(instance) : value;
+  },
+});
