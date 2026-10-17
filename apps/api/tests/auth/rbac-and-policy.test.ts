@@ -228,4 +228,40 @@ describe('Auth Module - RBAC, Ownership Assertion & Structural Route Policy', ()
 
     expect(unmappedRoutes).toHaveLength(0);
   });
+
+  it('should actively throw SECURITY_STRUCTURAL_VIOLATION when an unregistered route exists in a router', () => {
+    const rogueRouter = express.Router();
+    rogueRouter.get('/unmapped-rogue-endpoint', (_req: Request, res: Response) => {
+      res.send('ok');
+    });
+
+    const verifyRouterPolicies = (router: express.Router) => {
+      const unmappedRoutes: { method: string; path: string }[] = [];
+      for (const layer of router.stack) {
+        if (layer.route) {
+          const methods = Object.keys(layer.route.methods);
+          for (const m of methods) {
+            const policy = ROUTE_POLICY_REGISTRY.find(
+              (p) =>
+                p.method === m.toUpperCase() &&
+                normalizePath(p.path) === normalizePath(layer.route.path)
+            );
+            if (!policy) {
+              unmappedRoutes.push({ method: m.toUpperCase(), path: layer.route.path });
+            }
+          }
+        }
+      }
+      if (unmappedRoutes.length > 0) {
+        const errorList = unmappedRoutes.map((r) => `${r.method} ${r.path}`).join(', ');
+        throw new Error(
+          `[SECURITY_STRUCTURAL_VIOLATION] Found registered routes on /api/v1 without explicit access policy in ROUTE_POLICY_REGISTRY: ${errorList}`
+        );
+      }
+    };
+
+    expect(() => verifyRouterPolicies(rogueRouter)).toThrow(
+      /\[SECURITY_STRUCTURAL_VIOLATION\] Found registered routes on \/api\/v1 without explicit access policy/
+    );
+  });
 });

@@ -454,6 +454,18 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
   4. **OPEN-SEC-05**: Penegasan status mitigasi *timing attack* pada endpoint login (dummy hash verification) sebagai upaya pertahanan praktis *best-effort* dalam lingkungan managed Node.js/V8 runtime.
 - **Status**: `proposed`
 
+---
+
+### ADR-040: Harmonisasi Metode HTTP Endpoint Penggantian Kata Sandi (PUT /auth/change-password)
+- **Konteks**: Terdapat diskrepansi antara dokumentasi `API_CONTRACT.md` (yang sebelumnya mencantumkan `POST /auth/change-password` dan baris redundant `PUT /users/change-password`) dengan implementasi kode di `apps/api/src/modules/auth/auth.router.ts` dan test suite `password-management.test.ts`.
+- **Keputusan**:
+  1. Menetapkan secara tunggal dan definitif metode HTTP untuk penggantian kata sandi adalah **`PUT /api/v1/auth/change-password`**.
+  2. Menghapus rute fiktif/duplikat `PUT /users/change-password` dari kontrak API.
+  3. Memastikan `ROUTE_POLICY_REGISTRY` dan seluruh referensi kontrak tersinkronisasi 100%.
+- **Alasan**: Semantik RESTful untuk penggantian/pembaruan atribut kata sandi secara penuh pada akun pengguna terautentikasi adalah idempotent replacement (`PUT`), dan modul auth mengelompokkan fungsionalitas manajemen kredensial di bawah namespace `/auth`.
+- **Status**: `accepted`
+
+
 
 
 

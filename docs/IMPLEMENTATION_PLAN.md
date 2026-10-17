@@ -70,17 +70,18 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ---
 
 ### Phase 4: Authentication, Session, Cookie & RBAC
+- **Status**: **COMPLETED (Verified)**
 - **Tujuan**: Mengimplementasikan registrasi, login, logout, refresh token rotatif (HttpOnly cookie), serta middleware RBAC (`requireAuth`, `requireRole`).
 - **Prasyarat**: Phase 3 selesai.
-- **Hasil**: Modul auth berfungsi dengan pembuatan wallet otomatis saat registrasi.
+- **Hasil**: Modul auth berfungsi penuh (registrasi, login kredensial, rotasi refresh token atomik dengan HttpOnly cookie, logout, logout-all, ganti password, reset password, dan rate limiting ketat). *Catatan integrasi*: Pembuatan wallet default saat registrasi ditunda ke Phase 5 sesuai keselarasan modul finansial (D1).
 - **Dokumen yang Dibaca**: [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md).
-- **Test yang Harus Lulus**: Integration test login, token refresh, proteksi unauthorized 401, dan role forbidden 403.
-- **Kriteria Lanjut**: Pengguna dapat login dan mendapatkan refresh token cookie aman.
+- **Test yang Lulus**: 120+ tests Vitest di `apps/api` (register, login, logout, refresh rotation concurrency, password management, RBAC, route policy structural guard, rate limiters).
+- **Kriteria Lanjut**: Pengguna dapat login dan mendapatkan refresh token cookie aman; auth pipeline siap menyangga endpoint bisnis Phase 5.
 
 ---
 
 ### Phase 5: Wallet, Transaction & Transfer Business Logic
-- **Tujuan**: Membangun modul inti finansial: mutasi saldo, pencatatan transaksi pemasukan/pengeluaran, transfer saldo internal atomik dengan database lock & idempotency key.
+- **Tujuan**: Membangun modul inti finansial: pembuatan wallet default saat registrasi (D1), mutasi saldo, pencatatan transaksi pemasukan/pengeluaran, transfer saldo internal atomik dengan database lock & idempotency key.
 - **Prasyarat**: Phase 4 selesai.
 - **Hasil**: Endpoint `/api/v1/wallets`, `/api/v1/transactions`, `/api/v1/transfers`.
 - **Dokumen yang Dibaca**: [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md), [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md).

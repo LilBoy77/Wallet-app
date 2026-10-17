@@ -135,7 +135,7 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 | `POST` | `/auth/logout` | Public | Cookie: `refreshToken`, Header: `X-Requested-With` | 200, 401 | `refresh_tokens` | `VERIFIED` |
 | `POST` | `/auth/logout-all` | User, Admin | Header: `Bearer <token>` | 200, 401 | `refresh_tokens` | `VERIFIED` |
 | `GET` | `/auth/me` | User, Admin | Header: `Bearer <token>` | 200, 401 | `users` | `VERIFIED` |
-| `POST` | `/auth/change-password` | User, Admin | Header: `Bearer <token>`, Body: `current_password`, `new_password` | 200, 400, 401, 422 | `users`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
+| `PUT` | `/auth/change-password` | User, Admin | Header: `Bearer <token>`, Body: `current_password`, `new_password` | 200, 400, 401, 422 | `users`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
 | `POST` | `/auth/forgot-password` | Public | Body: `email` | 200, 422 | `users`, `password_resets`, `activity_logs` | `VERIFIED` |
 | `POST` | `/auth/reset-password` | Public | Body: `token`, `new_password` | 200, 400, 422 | `users`, `password_resets`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
 
@@ -144,7 +144,6 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | `GET` | `/users/profile` | User, Admin | Header: `Bearer <token>` | 200, 401 | `users` | `PLANNED` |
 | `PUT` | `/users/profile` | User, Admin | Body: `full_name`, `username` | 200, 400, 409, 422 | `users` | `PLANNED` |
-| `PUT` | `/users/change-password` | User, Admin | Body: `current_password`, `new_password` | 200, 400, 401, 422 | `users` | `PLANNED` |
 | `GET` | `/users/search` | User, Admin | Query: `query` (mencari penerima transfer) | 200, 401 | `users`, `wallets` | `PLANNED` |
 
 ### Modul 3: Dompet & Saldo (`/api/v1/wallets`)

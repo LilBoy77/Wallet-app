@@ -127,4 +127,81 @@ describe('Auth Rate Limiters Enforce HTTP 429', () => {
     expect(res3.headers['retry-after']).toBeDefined();
     expect(Number(res3.headers['retry-after'])).toBeGreaterThan(0);
   });
+
+  it('POST /api/v1/auth/register should enforce rate limit and return 429 TOO_MANY_REQUESTS with Retry-After header', async () => {
+    const registerLimiter = createRateLimiter({
+      windowMs: 60 * 1000,
+      max: 2,
+      message: 'Terlalu banyak permintaan registrasi dari IP ini. Silakan coba lagi nanti.',
+    });
+
+    const testApp = createTestAuthApp({ registerLimiter });
+
+    // Request 1
+    const res1 = await request(testApp).post('/api/v1/auth/register').send({
+      username: 'reg_rate_1',
+      email: 'reg_rate1@wallet.local',
+      password: 'ValidPassword123!',
+      full_name: 'Register Rate 1',
+    });
+    expect(res1.status).not.toBe(429);
+
+    // Request 2
+    const res2 = await request(testApp).post('/api/v1/auth/register').send({
+      username: 'reg_rate_2',
+      email: 'reg_rate2@wallet.local',
+      password: 'ValidPassword123!',
+      full_name: 'Register Rate 2',
+    });
+    expect(res2.status).not.toBe(429);
+
+    // Request 3: Blocked by rate limiter with 429
+    const res3 = await request(testApp).post('/api/v1/auth/register').send({
+      username: 'reg_rate_3',
+      email: 'reg_rate3@wallet.local',
+      password: 'ValidPassword123!',
+      full_name: 'Register Rate 3',
+    });
+
+    expect(res3.status).toBe(429);
+    expect(res3.body.success).toBe(false);
+    expect(res3.body.error.code).toBe('TOO_MANY_REQUESTS');
+    expect(res3.body.error.message).toContain('Terlalu banyak permintaan registrasi');
+    expect(res3.headers['retry-after']).toBeDefined();
+    expect(Number(res3.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('POST /api/v1/auth/reset-password should enforce rate limit and return 429 TOO_MANY_REQUESTS with Retry-After header', async () => {
+    const resetPasswordLimiter = createRateLimiter({
+      windowMs: 60 * 1000,
+      max: 2,
+      message: 'Terlalu banyak percobaan reset kata sandi. Silakan coba lagi nanti.',
+    });
+
+    const testApp = createTestAuthApp({ resetPasswordLimiter });
+
+    // Request 1
+    const res1 = await request(testApp)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'dummy_token_1', new_password: 'ValidPassword123!' });
+    expect(res1.status).not.toBe(429);
+
+    // Request 2
+    const res2 = await request(testApp)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'dummy_token_2', new_password: 'ValidPassword123!' });
+    expect(res2.status).not.toBe(429);
+
+    // Request 3: Blocked by rate limiter with 429
+    const res3 = await request(testApp)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'dummy_token_3', new_password: 'ValidPassword123!' });
+
+    expect(res3.status).toBe(429);
+    expect(res3.body.success).toBe(false);
+    expect(res3.body.error.code).toBe('TOO_MANY_REQUESTS');
+    expect(res3.body.error.message).toContain('Terlalu banyak percobaan reset kata sandi');
+    expect(res3.headers['retry-after']).toBeDefined();
+    expect(Number(res3.headers['retry-after'])).toBeGreaterThan(0);
+  });
 });
