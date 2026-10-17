@@ -30,6 +30,22 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 | **ADR-021** | 2026-10-11 | Strategi Database Seeder Deterministik & Rekonsiliasi Saldo | `accepted` | [apps/api/src/database/seeder.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/database/seeder.ts) |
 | **ADR-022** | 2026-10-11 | Isolasi Database Pengujian & Multi-Layer Safety Guard | `accepted` | [apps/api/tests/database/test-db-helper.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/tests/database/test-db-helper.ts) |
 | **ADR-023** | 2026-10-11 | Resolusi Keputusan Terbuka [OPEN] (OPEN-PB-01, OPEN-PB-02, OPEN-SEC-01) | `accepted` | [PROJECT_BRIEF.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/PROJECT_BRIEF.md) |
+| **ADR-024** | 2026-10-16 | Pemilihan Structured Logger (Pino) dan Strategi Redaksi Sensitif | `accepted` | [apps/api/src/shared/logging/logger.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/shared/logging/logger.ts) |
+| **ADR-025** | 2026-10-16 | Strategi Penanganan Unknown Fields pada Validasi Zod (Strip vs Strict) | `accepted` | [apps/api/src/middlewares/validator.middleware.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/middlewares/validator.middleware.ts) |
+| **ADR-026** | 2026-10-16 | Urutan Pipeline Middleware Express & Keamanan Standar | `accepted` | [apps/api/src/app.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/app.ts) |
+| **ADR-027** | 2026-10-16 | Strategi Rate Limiting In-Memory dan Factory Rute Autentikasi | `accepted` | [apps/api/src/middlewares/rate-limiter.middleware.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/middlewares/rate-limiter.middleware.ts) |
+| **ADR-028** | 2026-10-16 | Translasi Komprehensif Error Postgres ke Kode Error Terstandarisasi | `accepted` | [apps/api/src/middlewares/error-handler.middleware.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/middlewares/error-handler.middleware.ts) |
+| **ADR-029** | 2026-10-16 | Implementasi Middleware Validasi Skema Berbasis Zod (Req Body/Query/Params) | `accepted` | [apps/api/src/middlewares/validator.middleware.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/middlewares/validator.middleware.ts) |
+| **ADR-030** | 2026-10-16 | Hashing Kata Sandi Argon2id (OWASP Parameter) & Auto-Rehash Bcrypt | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-031** | 2026-10-16 | Short-Lived Access Token (JWT HS256) & In-Memory Client Storage | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-032** | 2026-10-16 | Opaque Refresh Token (256-bit Hex) Disimpan sebagai SHA-256 Hash di DB | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-033** | 2026-10-16 | Mekanisme Rotasi Token Atomik & Deteksi Pencurian Sesi (Family Invalidation) | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-034** | 2026-10-16 | Mitigasi Enumerasi Akun & Serangan Waktu (Constant-Time Dummy Hash) | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-035** | 2026-10-16 | Structural Route Policy Guard & Verifikasi Status Real-time Pengguna | `accepted` | [apps/api/src/middlewares/route-policy.guard.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/middlewares/route-policy.guard.ts) |
+| **ADR-036** | 2026-10-16 | Alur Pemulihan Kata Sandi Aman & Proteksi Host Header Poisoning | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-037** | 2026-10-16 | Manajemen Outbox Email Lokal & Guard SMTP Produksi | `accepted` | [apps/api/src/shared/mail/mail.service.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/shared/mail/mail.service.ts) |
+| **ADR-038** | 2026-10-16 | Batas yang Diketahui pada Stateless Access Token setelah Logout & Opsi Session Binding | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-039** | 2026-10-16 | Daftar Keputusan Terbuka Arsitektur Keamanan untuk Phase 12 (OPEN-SEC-02 s/d 05) | `proposed` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
 
 ---
 
@@ -413,6 +429,31 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
   1. Pada lingkungan non-produksi (`NODE_ENV !== 'production'`), email ditulis ke berkas JSON di direktori lokal `apps/api/.outbox/` (terdaftar di `.gitignore`).
   2. Pada lingkungan produksi, konfigurasi `env.ts` menolak nilai `MAIL_TRANSPORT=outbox` saat startup (*fail-fast*) dan mewajibkan konfigurasi SMTP terenkripsi yang valid.
 - **Status**: `accepted`
+
+---
+
+### ADR-038: Batas yang Diketahui pada Stateless Access Token setelah Logout & Opsi Session Binding
+- **Konteks**: Access token JWT berumur 15 menit (900 detik) beroperasi secara stateless. Saat pengguna melakukan `POST /auth/logout` atau `POST /auth/logout-all`, refresh token di database dibatalkan, namun access token yang sudah diterbitkan tetap valid secara kriptografis dan lolos verifikasi `authenticate` sampai masa kedaluwarsa (`exp`) tercapai, selama akun pengguna berstatus aktif di database.
+- **Keputusan**:
+  1. Batasan ini dicatat secara sadar sebagai *known limitation* dari arsitektur short-lived stateless JWT untuk menjaga skalabilitas I/O backend.
+  2. Middleware `authenticate` menjamin pencabutan segera (*instant revocation*) untuk kasus akun dinonaktifkan (`is_active = false`) atau dihapus (`deleted_at IS NOT NULL`).
+  3. Mengusulkan 3 opsi arsitektural untuk mengikat token ke sesi di masa mendatang (Phase 12 / evaluasi production, tidak diimplementasikan saat ini):
+     - *Opsi A (Session ID Binding)*: Menyematkan `session_id` pada payload JWT dan memverifikasi baris sesi di database pada setiap request.
+     - *Opsi B (User Token Versioning)*: Menambahkan kolom `token_version` pada tabel `users` yang dinaikkan saat logout-all atau ubah password.
+     - *Opsi C (Distributed Redis Blacklist)*: Menyimpan klaim `jti` token yang dicabut ke cache Redis dengan TTL sesuai sisa `exp`.
+- **Status**: `accepted`
+
+---
+
+### ADR-039: Daftar Keputusan Terbuka Arsitektur Keamanan untuk Phase 12 (OPEN-SEC-02 s/d OPEN-SEC-05)
+- **Konteks**: Menginventarisasi pertimbangan arsitektur keamanan, operasional, dan performa yang memerlukan keputusan final pada Phase 12 (Hardening & Audit).
+- **Keputusan**: Mencatat 4 item keputusan terbuka:
+  1. **OPEN-SEC-02**: Evaluasi atribut cookie `SameSite='Lax'` vs `SameSite='None'` + `Secure=true` apabila frontend web dan backend API di-deploy pada root domain yang berbeda lintas situs.
+  2. **OPEN-SEC-03**: Penyesuaian/tuning parameter memori Argon2id (saat ini 64 MB OWASP) terhadap beban memori konkuren server hosting berspesifikasi terbatas.
+  3. **OPEN-SEC-04**: Pemilihan mekanisme penjadwalan otomasi berkala untuk skrip CLI pembersihan token `pnpm db:cleanup-tokens` (OS Cron, Kubernetes CronJob, atau task worker).
+  4. **OPEN-SEC-05**: Penegasan status mitigasi *timing attack* pada endpoint login (dummy hash verification) sebagai upaya pertahanan praktis *best-effort* dalam lingkungan managed Node.js/V8 runtime.
+- **Status**: `proposed`
+
 
 
 

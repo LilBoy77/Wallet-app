@@ -2,6 +2,7 @@ import cors, { type CorsOptions } from 'cors';
 import { env, getCorsAllowedOrigins } from '../config/env.js';
 import { ForbiddenError } from '../shared/errors/app-error.js';
 import { ERROR_CODES } from '../shared/errors/error-catalog.js';
+import { logger } from '../shared/logging/logger.js';
 
 /**
  * Creates configured CORS middleware using explicit origin whitelist from env.
@@ -22,12 +23,15 @@ export function createCorsMiddleware() {
         return callback(null, true);
       }
 
+      logger.warn(
+        { origin, allowedOrigins },
+        `[CORS] Request dari origin '${origin}' ditolak oleh whitelist kebijakan CORS`
+      );
+
       const corsError = new ForbiddenError(
         `Origin '${origin}' tidak diizinkan oleh kebijakan CORS`,
-        { allowedOrigins }
+        ERROR_CODES.ORIGIN_NOT_ALLOWED
       );
-      // Attach code for explicit identification
-      Object.assign(corsError, { code: ERROR_CODES.ORIGIN_NOT_ALLOWED });
       return callback(corsError);
     },
     credentials: true,

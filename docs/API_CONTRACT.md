@@ -97,6 +97,17 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 | `SERVICE_UNAVAILABLE` | 503 | Database atau komponen inti sistem sedang tidak dapat dihubungi. |
 | `QUERY_TIMEOUT` | 504 | Batas waktu eksekusi query terlampaui (`57014`). |
 
+### Kebijakan Bahasa Error (Error Language Policy) `[DECIDED]`
+1. **`error.code`**:
+   - Selalu dalam **Bahasa Inggris** menggunakan konvensi `SCREAMING_SNAKE_CASE` (contoh: `VALIDATION_ERROR`, `UNAUTHORIZED`, `DUPLICATE_ENTRY`, `ORIGIN_NOT_ALLOWED`).
+   - Bersifat **permanen dan stabil** sebagai kontrak programatik untuk logika kondisional frontend (i18n mapping, routing redirect, handling form error) dan automasi testing.
+2. **`error.message`**:
+   - Ditulis secara konsisten dalam **satu bahasa (Bahasa Indonesia)** di seluruh modul backend.
+   - Berfungsi sebagai teks deskriptif yang ramah pengguna (*human-readable*) jika frontend ingin langsung menampilkannya pada UI banner/toast.
+3. **`error.details`**:
+   - Struktur data detail validasi atau konteks terstruktur (misal rincian array `{ field, message }` dari Zod).
+   - Bersih dari informasi sensitif arsitektur internal server (seperti constraint SQL, nama tabel, query, atau whitelist origin CORS).
+
 ---
 
 ## 4. Konvensi Query Parameters (Search, Filter, Sort, Pagination) `[DECIDED]`

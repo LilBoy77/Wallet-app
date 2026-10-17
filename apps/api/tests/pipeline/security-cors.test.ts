@@ -31,7 +31,7 @@ describe('Security Headers (Helmet) & CORS Whitelist Policy', () => {
     expect(res.headers['access-control-allow-methods']).toContain('POST');
   });
 
-  it('should reject requests from unauthorized origins with HTTP 403 ORIGIN_NOT_ALLOWED', async () => {
+  it('should reject requests from unauthorized origins with HTTP 403 ORIGIN_NOT_ALLOWED without leaking allowed origins', async () => {
     const res = await request(app)
       .get('/health')
       .set('Origin', 'http://malicious-site.example.com');
@@ -40,5 +40,9 @@ describe('Security Headers (Helmet) & CORS Whitelist Policy', () => {
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('ORIGIN_NOT_ALLOWED');
     expect(res.body.error.message).toContain('tidak diizinkan oleh kebijakan CORS');
+    // Strict security assertion: details MUST be null and MUST NOT leak internal allowed origins
+    expect(res.body.error.details).toBeNull();
+    expect(JSON.stringify(res.body)).not.toContain('localhost:5173');
+    expect(JSON.stringify(res.body)).not.toContain('allowedOrigins');
   });
 });

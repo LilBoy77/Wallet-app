@@ -47,6 +47,11 @@ Sistem menerapkan strategi hybrid token dengan pemisahan peran yang ketat:
 - **Validasi Ketat**: Verifikasi wajib mencakup `algorithms: ['HS256']`, `issuer: env.JWT_ISSUER`, dan `audience: env.JWT_AUDIENCE`.
 - **Payload Minim**: Memuat klaim standar `sub` (user ID), `role` (`admin` | `user`), `email`, dan `jti` (UUID unik).
 - **Penyimpanan di Klien**: Disimpan secara aman di memori aplikasi JavaScript klien (misal React State / TanStack Query cache). Tidak disimpan di `localStorage` atau `sessionStorage` untuk mencegah pencurian token melalui serangan XSS.
+- **Batas yang Diketahui (Known Limitation)**: Access token JWT bersifat murni *stateless*. Setelah pemanggilan `POST /auth/logout` atau `POST /auth/logout-all`, access token yang sudah diterbitkan tetap valid secara kriptografis sampai masa kedaluwarsanya habis (maksimal 15 menit), selama akun pengguna tidak dinonaktifkan di tabel `users`. Logout hanya membatalkan refresh token di database (mencegah perpanjangan sesi dan penerbitan token baru).
+- **Usulan Opsi Pengikatan Token ke Sesi (Proposed for Future - Do Not Implement Yet)**:
+  1. *Session ID Binding*: Menyematkan `session_id` (merujuk ke id baris tabel `refresh_tokens`) pada payload JWT, lalu memvalidasi status keaktifan sesi di database pada middleware `authenticate`.
+  2. *Token Versioning*: Menyimpan kolom integer `token_version` pada tabel `users`. Setiap logout-all atau reset password menaikkan versi ini; JWT dengan `token_version` di bawah nilai database langsung ditolak.
+  3. *Distributed In-Memory Revocation List*: Menyimpan `jti` token yang dicabut ke Redis in-memory cache dengan TTL selama sisa masa berlaku token.
 
 ### B. Refresh Token (Opaque Token & Session Family):
 - **Format Token**: Token acak kriptografis 256-bit berentropi tinggi (`crypto.randomBytes(32).toString('hex')`).
@@ -127,3 +132,30 @@ Meskipun cookie refresh token dilindungi oleh `SameSite=Lax`, sistem menerapkan 
   - Header: `authorization`, `cookie`, `set-cookie`.
   - Properti: `password`, `token`, `refreshToken`, `accessToken`, `secret`, `new_password`, `current_password`.
   - Body request tidak pernah dicatat dalam log produksi.
+
+---
+
+## 8. Catatan Batasan & Daftar Keputusan Terbuka `[OPEN]` untuk Phase 12
+
+Berikut adalah daftar isu arsitektural dan operasional yang dicatat sebagai `[OPEN]` untuk diputuskan pada Phase 12 (Hardening, Audit & Production Prep):
+
+1. **[OPEN-SEC-02] Kebijakan SameSite Cookie vs Frontend Lintas Situs**:
+   - *Kondisi Saat Ini*: Cookie refresh token menggunakan `SameSite='Lax'`. Konfigurasi ini aman dan ideal jika frontend dan backend berada pada origin yang sama atau satu root domain (misal via dev proxy Vite lokal, atau di produksi `app.wallet.com` & `api.wallet.com`).
+   - *Isu*: Jika di produksi frontend dan backend di-hosting pada domain pihak ketiga yang berbeda secara utuh (misal `wallet.vercel.app` dan `wallet-api.railway.app`), browser akan memblokir pengiriman cookie `SameSite=Lax` pada request fetch/XHR lintas situs.
+   - *Opsi Solusi*: Mengubah ke `SameSite='None'` + `Secure=true` (dengan mengandalkan CSRF custom header defense) ATAU mewajibkan arsitektur domain tunggal (custom domain / reverse proxy).
+
+2. **[OPEN-SEC-03] Tuning Parameter Argon2id dan Dampak Memori Server**:
+   - *Kondisi Saat Ini*: Menggunakan konfigurasi standar rekomendasi OWASP: Memory cost 64 MB (65,536 KB), Time cost 3 iterations, Parallelism 4 threads.
+   - *Isu*: Pada infrastruktur bersumber daya kecil (VPS 512 MB - 1 GB RAM atau serverless instance), 10 percobaan login/registrasi simultan membutuhkan $\ge 640\text{ MB}$ RAM yang dapat memicu Out-of-Memory (OOM killer).
+   - *Opsi Solusi*: Melakukan *benchmark* dan penyesuaian parameter memori Argon2id (misal 32 MB atau 19 MB per batas minimum OWASP) jika target hosting memiliki RAM terbatas, atau mengisolasi proses autentikasi.
+
+3. **[OPEN-SEC-04] Mekanisme Penjadwalan Pembersihan Token (`db:cleanup-tokens`)**:
+   - *Kondisi Saat Ini*: Skrip pembersihan `pnpm db:cleanup-tokens` (`apps/api/src/database/scripts/cleanup-tokens.ts`) sudah siap dan tervalidasi secara manual/CLI.
+   - *Isu*: Eksekusi otomatis berkala belum terhubung ke scheduler sistem produksi.
+   - *Opsi Solusi*: Menggunakan OS crontab di tingkat virtual machine, Kubernetes CronJob, atau task scheduler internal (e.g., node-cron / BullMQ worker).
+
+4. **[OPEN-SEC-05] Mitigasi Timing Attack pada Login (Klaim Best-Effort)**:
+   - *Kondisi Saat Ini*: Diterapkan verifikasi *dummy Argon2id hash* untuk email yang tidak ditemukan agar menyamakan waktu kalkulasi CPU dengan email yang ada.
+   - *Isu*: Pada runtime managed seperti Node.js dengan V8 garbage collection, JIT compiler, dan event-loop async concurrency, pencegahan timing attack tidak dapat dijamin 100% konstan secara matematis pada presisi nanodetik.
+   - *Pencatatan*: Mitigasi ini ditegaskan sebagai pertahanan *best-effort* praktis, bukan jaminan mutlak tingkat sirkuit/hardware.
+
