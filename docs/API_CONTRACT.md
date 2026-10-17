@@ -139,6 +139,8 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 | `POST` | `/auth/forgot-password` | Public | Body: `email` | 200, 422 | `users`, `password_resets`, `activity_logs` | `VERIFIED` |
 | `POST` | `/auth/reset-password` | Public | Body: `token`, `new_password` | 200, 400, 422 | `users`, `password_resets`, `refresh_tokens`, `activity_logs` | `VERIFIED` |
 
+*Catatan Keamanan Sesi*: Access token JWT mengikat klaim session id (`sid`) ke keluarga refresh token aktif. Token ditolak seketika (HTTP 401 `UNAUTHORIZED`) pasca `logout`, `logout-all`, `change-password`, atau `reset-password`.
+
 ### Modul 2: Profil & Pengguna (`/api/v1/users`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |

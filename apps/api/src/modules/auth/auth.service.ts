@@ -90,12 +90,13 @@ export class AuthService {
     await argon2.verify(dummyArgon2Hash, password);
   }
 
-  mintAccessToken(user: UserRecord): string {
+  mintAccessToken(user: UserRecord, sessionId: string): string {
     const payload = {
       sub: user.id,
       role: user.role,
       email: user.email,
       jti: crypto.randomUUID(),
+      sid: sessionId,
     };
 
     return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
@@ -211,7 +212,7 @@ export class AuthService {
       expiresAt,
     });
 
-    const accessToken = this.mintAccessToken(user);
+    const accessToken = this.mintAccessToken(user, familyId);
 
     await authRepository.recordActivityLog(pool, {
       userId: user.id,
@@ -297,7 +298,7 @@ export class AuthService {
         expiresAt,
       });
 
-      const accessToken = this.mintAccessToken(user);
+      const accessToken = this.mintAccessToken(user, familyId);
 
       await authRepository.recordActivityLog(client, {
         userId: user.id,
@@ -346,13 +347,17 @@ export class AuthService {
   ): Promise<void> {
     if (rawRefreshToken) {
       const tokenHash = hashSha256(rawRefreshToken);
-      const res = await pool.query<{ id: string; user_id: string }>(
-        `SELECT id, user_id FROM refresh_tokens WHERE token_hash = $1`,
+      const res = await pool.query<{ id: string; user_id: string; family_id: string | null }>(
+        `SELECT id, user_id, family_id FROM refresh_tokens WHERE token_hash = $1`,
         [tokenHash]
       );
       const firstRow = res.rows[0];
       if (firstRow) {
-        await authRepository.revokeRefreshToken(pool, firstRow.id);
+        if (firstRow.family_id) {
+          await authRepository.revokeRefreshTokenFamily(pool, firstRow.family_id);
+        } else {
+          await authRepository.revokeRefreshToken(pool, firstRow.id);
+        }
         if (!userId) {
           userId = firstRow.user_id;
         }

@@ -64,12 +64,32 @@ export async function authenticate(
     throw new UnauthorizedError('Klaim sub tidak ditemukan pada token');
   }
 
-  // Real-time Database Verification: Ensures immediate revocation on user deactivation, soft delete, or role change
+  const sessionId = decoded['sid'] as string | undefined;
+  if (!sessionId) {
+    throw new UnauthorizedError('Klaim sesi (sid) tidak ditemukan pada token');
+  }
+
+  // Real-time Database Verification: Combines user status check & session binding validation in a single round-trip
   const queryResult = await pool.query(
-    `SELECT id, username, email, full_name, role, is_active, deleted_at
-     FROM users
-     WHERE id = $1`,
-    [userId]
+    `SELECT 
+       u.id, 
+       u.username, 
+       u.email, 
+       u.full_name, 
+       u.role, 
+       u.is_active, 
+       u.deleted_at,
+       EXISTS (
+         SELECT 1 
+         FROM refresh_tokens rt 
+         WHERE rt.family_id = $2 
+           AND rt.user_id = u.id 
+           AND rt.is_revoked = false 
+           AND rt.expires_at > NOW()
+       ) AS has_active_session
+     FROM users u
+     WHERE u.id = $1`,
+    [userId, sessionId]
   );
 
   if (queryResult.rows.length === 0) {
@@ -84,6 +104,10 @@ export async function authenticate(
 
   if (!user.is_active) {
     throw new UnauthorizedError('Akun pengguna dinonaktifkan oleh administrator');
+  }
+
+  if (!user.has_active_session) {
+    throw new UnauthorizedError('Sesi autentikasi telah dicabut atau kedaluwarsa');
   }
 
   req.user = {

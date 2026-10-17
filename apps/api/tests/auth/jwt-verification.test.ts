@@ -12,6 +12,7 @@ import {
 
 describe('Auth Module - JWT Access Token Verification & Real-time DB Checks', () => {
   let validUserId: string;
+  let validFamilyId: string;
 
   beforeAll(async () => {
     await setupTestDatabase();
@@ -32,11 +33,26 @@ describe('Auth Module - JWT Access Token Verification & Real-time DB Checks', ()
        RETURNING id`
     );
     validUserId = res.rows[0].id;
+
+    // Create active refresh token session
+    const sessionRes = await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, is_revoked)
+       VALUES ($1, 'hash_${Date.now()}_${Math.random()}', gen_random_uuid(), NOW() + INTERVAL '7 days', false)
+       RETURNING family_id`,
+      [validUserId]
+    );
+    validFamilyId = sessionRes.rows[0].family_id;
   });
 
   it('should accept a valid pinned HS256 JWT with correct issuer and audience', async () => {
     const token = jwt.sign(
-      { sub: validUserId, role: 'user', email: 'jwt@wallet.local', jti: 'test-jti' },
+      {
+        sub: validUserId,
+        role: 'user',
+        email: 'jwt@wallet.local',
+        jti: 'test-jti',
+        sid: validFamilyId,
+      },
       env.JWT_ACCESS_SECRET,
       { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE }
     );
@@ -165,7 +181,13 @@ describe('Auth Module - JWT Access Token Verification & Real-time DB Checks', ()
 
   it('should immediately reject request if user was deactivated or soft-deleted in DB despite holding valid token', async () => {
     const validToken = jwt.sign(
-      { sub: validUserId, role: 'user', email: 'jwt@wallet.local', jti: 'test-jti' },
+      {
+        sub: validUserId,
+        role: 'user',
+        email: 'jwt@wallet.local',
+        jti: 'test-jti',
+        sid: validFamilyId,
+      },
       env.JWT_ACCESS_SECRET,
       { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE }
     );

@@ -45,13 +45,14 @@ Sistem menerapkan strategi hybrid token dengan pemisahan peran yang ketat:
 - **Masa Berlaku**: Singkat (15 menit / 900 detik).
 - **Format**: JSON Web Token (JWT) ditandatangani secara kriptografis menggunakan algoritma `HS256`.
 - **Validasi Ketat**: Verifikasi wajib mencakup `algorithms: ['HS256']`, `issuer: env.JWT_ISSUER`, dan `audience: env.JWT_AUDIENCE`.
-- **Payload Minim**: Memuat klaim standar `sub` (user ID), `role` (`admin` | `user`), `email`, dan `jti` (UUID unik).
+- **Payload Minim & Session Binding**: Memuat klaim standar `sub` (user ID), `role` (`admin` | `user`), `email`, `jti` (UUID unik), serta `sid` (`family_id` dari sesi refresh token aktif).
 - **Penyimpanan di Klien**: Disimpan secara aman di memori aplikasi JavaScript klien (misal React State / TanStack Query cache). Tidak disimpan di `localStorage` atau `sessionStorage` untuk mencegah pencurian token melalui serangan XSS.
-- **Batas yang Diketahui (Known Limitation)**: Access token JWT bersifat murni *stateless*. Setelah pemanggilan `POST /auth/logout` atau `POST /auth/logout-all`, access token yang sudah diterbitkan tetap valid secara kriptografis sampai masa kedaluwarsanya habis (maksimal 15 menit), selama akun pengguna tidak dinonaktifkan di tabel `users`. Logout hanya membatalkan refresh token di database (mencegah perpanjangan sesi dan penerbitan token baru).
-- **Usulan Opsi Pengikatan Token ke Sesi (Proposed for Future - Do Not Implement Yet)**:
-  1. *Session ID Binding*: Menyematkan `session_id` (merujuk ke id baris tabel `refresh_tokens`) pada payload JWT, lalu memvalidasi status keaktifan sesi di database pada middleware `authenticate`.
-  2. *Token Versioning*: Menyimpan kolom integer `token_version` pada tabel `users`. Setiap logout-all atau reset password menaikkan versi ini; JWT dengan `token_version` di bawah nilai database langsung ditolak.
-  3. *Distributed In-Memory Revocation List*: Menyimpan `jti` token yang dicabut ke Redis in-memory cache dengan TTL selama sisa masa berlaku token.
+- **Pengikatan Sesi & Pencabutan Seketika (Session Binding & Immediate Revocation)**:
+  - Access token JWT terikat langsung pada sesi keluarga refresh token via klaim `sid` (`family_id`).
+  - Middleware `authenticate` memverifikasi keberadaan refresh token aktif (`is_revoked = false AND expires_at > NOW()`) dalam keluarga sesi tersebut bersamaan dengan verifikasi status akun pengguna dalam **satu round-trip query** terindeks (`idx_refresh_tokens_family_user_active`).
+  - Efek pencabutan instan: saat pengguna melakukan `POST /auth/logout`, `POST /auth/logout-all`, `PUT /auth/change-password`, `POST /auth/reset-password`, atau saat reuse detection terpicu, access token **ditolak seketika** (HTTP 401 UNAUTHORIZED) tanpa menunggu sisa masa berlaku 15 menit habis.
+  - Sesi perangkat lain milik pengguna yang sama tetap terlindungi dan valid saat logout biasa pada satu perangkat.
+
 
 ### B. Refresh Token (Opaque Token & Session Family):
 - **Format Token**: Token acak kriptografis 256-bit berentropi tinggi (`crypto.randomBytes(32).toString('hex')`).

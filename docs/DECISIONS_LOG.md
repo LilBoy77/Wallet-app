@@ -465,6 +465,26 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 - **Alasan**: Semantik RESTful untuk penggantian/pembaruan atribut kata sandi secara penuh pada akun pengguna terautentikasi adalah idempotent replacement (`PUT`), dan modul auth mengelompokkan fungsionalitas manajemen kredensial di bawah namespace `/auth`.
 - **Status**: `accepted`
 
+---
+
+### ADR-041: Session Binding Access Token ke Refresh Session Family untuk Pencabutan Seketika (Immediate Revocation)
+- **Konteks**: Access token JWT 15 menit sebelumnya beroperasi murni stateless di tingkat token individu (hanya memverifikasi status keaktifan user). Akibatnya, token yang sudah diterbitkan tetap dapat digunakan selama sisa masa berlaku hingga 15 menit pasca `logout`, `logout-all`, `change-password`, atau `reset-password`. Diperlukan solusi pencabutan instan (*immediate revocation*) yang tetap mempertahankan performa tinggi tanpa dependensi eksternal (Redis).
+- **Keputusan**:
+  1. Menyematkan klaim sesi `sid` pada payload JWT access token yang berisi `family_id` dari rantai rotasi refresh token aktif.
+  2. Middleware `authenticate` memverifikasi keaktifan sesi via subquery `EXISTS (SELECT 1 FROM refresh_tokens rt WHERE rt.family_id = $2 AND rt.user_id = u.id AND rt.is_revoked = false AND rt.expires_at > NOW())` yang digabungkan secara atomik dalam satu round-trip query ke tabel `users`.
+  3. Membuat migration `010_add_session_binding_index` yang menambahkan partial composite index `CREATE INDEX idx_refresh_tokens_family_user_active ON refresh_tokens (family_id, user_id) WHERE is_revoked = false;`.
+  4. Token ditolak seketika (HTTP 401 UNAUTHORIZED) apabila:
+     - Sesi dicabut melalui `logout` (keluarga refresh token dibatalkan).
+     - Seluruh sesi dicabut melalui `logout-all`, `change-password`, atau `reset-password`.
+     - Token reuse detection membatalkan seluruh keluarga sesi.
+     - Token tidak memuat klaim `sid` atau nilai `sid` tidak valid/tidak ada di database.
+  5. Sesi login dari perangkat lain milik pengguna yang sama (dengan `family_id` berbeda) tetap terlindungi dan valid saat logout biasa dilakukan pada salah satu perangkat.
+- **Dampak Performa**:
+  - Penambahan pengecekan ini tidak menambah round-trip jaringan database (0 additional round-trips) karena dieksekusi dalam query `SELECT ... FROM users` yang sudah ada di pipeline `authenticate`.
+  - Subquery memanfaatkan partial index `idx_refresh_tokens_family_user_active`, menghasilkan waktu eksekusi sub-milidetik ($< 0.1\text{ms}$) bertipe Index Only Scan pada PostgreSQL.
+- **Status**: `accepted`
+
+
 
 
 

@@ -41,8 +41,21 @@ describe('Auth Module - RBAC, Ownership Assertion & Structural Route Policy', ()
        RETURNING id`
     );
     adminUserId = adminRes.rows[0].id;
+    const adminSession = await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, is_revoked)
+       VALUES ($1, 'hash_admin_${Date.now()}', gen_random_uuid(), NOW() + INTERVAL '7 days', false)
+       RETURNING family_id`,
+      [adminUserId]
+    );
+    const adminSid = adminSession.rows[0].family_id;
     adminToken = jwt.sign(
-      { sub: adminUserId, role: 'admin', email: 'admin_rbac@wallet.local', jti: 'admin-jti' },
+      {
+        sub: adminUserId,
+        role: 'admin',
+        email: 'admin_rbac@wallet.local',
+        jti: 'admin-jti',
+        sid: adminSid,
+      },
       env.JWT_ACCESS_SECRET,
       { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE }
     );
@@ -54,8 +67,21 @@ describe('Auth Module - RBAC, Ownership Assertion & Structural Route Policy', ()
        RETURNING id`
     );
     normalUserId1 = user1Res.rows[0].id;
+    const user1Session = await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, is_revoked)
+       VALUES ($1, 'hash_user1_${Date.now()}', gen_random_uuid(), NOW() + INTERVAL '7 days', false)
+       RETURNING family_id`,
+      [normalUserId1]
+    );
+    const user1Sid = user1Session.rows[0].family_id;
     userToken1 = jwt.sign(
-      { sub: normalUserId1, role: 'user', email: 'user1_rbac@wallet.local', jti: 'user1-jti' },
+      {
+        sub: normalUserId1,
+        role: 'user',
+        email: 'user1_rbac@wallet.local',
+        jti: 'user1-jti',
+        sid: user1Sid,
+      },
       env.JWT_ACCESS_SECRET,
       { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE }
     );
@@ -67,8 +93,21 @@ describe('Auth Module - RBAC, Ownership Assertion & Structural Route Policy', ()
        RETURNING id`
     );
     normalUserId2 = user2Res.rows[0].id;
+    const user2Session = await pool.query(
+      `INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at, is_revoked)
+       VALUES ($1, 'hash_user2_${Date.now()}', gen_random_uuid(), NOW() + INTERVAL '7 days', false)
+       RETURNING family_id`,
+      [normalUserId2]
+    );
+    const user2Sid = user2Session.rows[0].family_id;
     userToken2 = jwt.sign(
-      { sub: normalUserId2, role: 'user', email: 'user2_rbac@wallet.local', jti: 'user2-jti' },
+      {
+        sub: normalUserId2,
+        role: 'user',
+        email: 'user2_rbac@wallet.local',
+        jti: 'user2-jti',
+        sid: user2Sid,
+      },
       env.JWT_ACCESS_SECRET,
       { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE }
     );

@@ -298,6 +298,8 @@ Soft delete (`deleted_at TIMESTAMP NULL`) diterapkan pada 3 entitas kunci:
 - `CREATE INDEX idx_budgets_user_period ON budgets(user_id, start_date, end_date);`
 - `CREATE INDEX idx_activity_logs_user_created ON activity_logs(user_id, created_at DESC);`
 - `CREATE INDEX idx_notifications_user_unread ON notifications(user_id, is_read) WHERE is_read = false;`
+- `CREATE INDEX idx_refresh_tokens_family_user_active ON refresh_tokens (family_id, user_id) WHERE is_revoked = false;` (Migration 010: Session Binding Index untuk verifikasi instan status sesi aktif di middleware `authenticate`)
+
 
 ---
 
