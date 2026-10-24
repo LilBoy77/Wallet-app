@@ -54,6 +54,14 @@ describe('Auth Module - Registration (/api/v1/auth/register)', () => {
     expect(dbRes.rows.length).toBe(1);
     expect(dbRes.rows[0].password_hash).toMatch(/^\$argon2id\$/);
     expect(dbRes.rows[0].password_hash).not.toContain('StrongPassword123!');
+
+    // D1: Verify default wallet was created atomically
+    const walletRes = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [userData.id]);
+    expect(walletRes.rows.length).toBe(1);
+    expect(walletRes.rows[0].currency).toBe('IDR');
+    expect(walletRes.rows[0].balance).toBe('0');
+    expect(walletRes.rows[0].name).toBe('Dompet Utama');
+    expect(walletRes.rows[0].wallet_number).toMatch(/^WAL-[0-9A-F]{8}$/);
   });
 
   it('should reject duplicate email registration case-insensitively with 409 DUPLICATE_ENTRY', async () => {

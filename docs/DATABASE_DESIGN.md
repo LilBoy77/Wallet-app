@@ -335,3 +335,30 @@ Selama implementasi nyata dan pengujian Phase 2, dilakukan penyempurnaan skema y
    - `budgets`: ditambahkan `CONSTRAINT uq_budgets_user_category_period UNIQUE (user_id, category_id, start_date, end_date)`.
    - `transfers`: ditambahkan `CONSTRAINT chk_transfers_different_wallets CHECK (source_wallet_id <> target_wallet_id)`.
 
+---
+
+## 8. Penyempurnaan Skema Phase 5 (`011_phase5_core_financial_schema`) `[ACCEPTED]`
+
+Migrasi `011_phase5_core_financial_schema` memperkuat integritas data dan idempotensi transaksi:
+1. **Atribut Dompet Tambahan (`wallets`)**:
+   - `name VARCHAR(50) NOT NULL DEFAULT 'Dompet Utama'`: Mendukung penamaan akun dompet.
+   - `is_active BOOLEAN NOT NULL DEFAULT true`: Memungkinkan penonaktifan dompet secara terisolasi.
+2. **State Machine Transaksi (`transactions.status`)**:
+   - Menambahkan kolom `status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED'`.
+   - Constraint: `CHECK (status IN ('COMPLETED', 'VOIDED'))`.
+   - Indeks parsial: `CREATE INDEX idx_transactions_wallet_status_date ON transactions(wallet_id, status, transaction_date DESC) WHERE deleted_at IS NULL;`
+3. **Ekspansi Reference Type Ledger (`wallet_entries`)**:
+   - Memperluas nilai valid `reference_type` mencakup `'transaction_void'` dan `'reversal'`.
+4. **Scoped Idempotency Constraint pada `transfers`**:
+   - Mengganti constraint global `UNIQUE(idempotency_key)` menjadi compound unique: `CONSTRAINT uq_transfers_source_idempotency_key UNIQUE (source_wallet_id, idempotency_key)`. Memungkinkan pengguna berbeda secara independen menggunakan key yang sama tanpa bentrok lintas-pengguna.
+5. **Tabel Cache Idempotensi Terdedikasi (`idempotency_records`)**:
+   - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+   - `user_id`: `UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE`
+   - `idempotency_key`: `VARCHAR(128) NOT NULL`
+   - `request_hash`: `VARCHAR(64) NOT NULL` (SHA-256 dari canonical request body)
+   - `response_status`: `INTEGER NOT NULL`
+   - `response_body`: `JSONB NOT NULL`
+   - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+   - Constraint: `CONSTRAINT uq_idempotency_user_key UNIQUE (user_id, idempotency_key)`
+   - Indeks: `CREATE INDEX idx_idempotency_created_at ON idempotency_records(created_at);`
+

@@ -75,6 +75,21 @@ export const envSchema = z
     SMTP_PORT: z.coerce.number().int().positive().optional(),
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
+
+    // Phase 5: Core Financial & Transfer Configuration
+    TRANSFER_MAX_AMOUNT_PER_TX: z.coerce.number().int().positive().default(50_000_000), // Max Rp 50.000.000 per transfer
+    ENABLE_TOPUP_SIMULATION: z
+      .preprocess((val) => {
+        if (typeof val === 'string') {
+          const lower = val.trim().toLowerCase();
+          if (lower === 'true' || lower === '1') return true;
+          if (lower === 'false' || lower === '0') return false;
+        }
+        return val;
+      }, z.boolean())
+      .default(false),
+    TOPUP_MAX_AMOUNT_PER_TX: z.coerce.number().int().positive().default(50_000_000), // Max Rp 50.000.000 per topup
+    INCOME_MAX_AMOUNT_PER_TX: z.coerce.number().int().positive().default(50_000_000), // Max Rp 50.000.000 per income
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {
@@ -124,6 +139,14 @@ export const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ['SMTP_HOST'],
           message: "SMTP_HOST is required when MAIL_TRANSPORT is 'smtp'",
+        });
+      }
+
+      if (data.ENABLE_TOPUP_SIMULATION) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ENABLE_TOPUP_SIMULATION'],
+          message: 'ENABLE_TOPUP_SIMULATION must be disabled (false) in production',
         });
       }
     }
@@ -190,6 +213,10 @@ try {
       ARGON2_TIME_COST: 3,
       ARGON2_PARALLELISM: 4,
       MAIL_TRANSPORT: 'outbox',
+      TRANSFER_MAX_AMOUNT_PER_TX: 50_000_000,
+      ENABLE_TOPUP_SIMULATION: true,
+      TOPUP_MAX_AMOUNT_PER_TX: 50_000_000,
+      INCOME_MAX_AMOUNT_PER_TX: 50_000_000,
     };
   } else {
     throw err;

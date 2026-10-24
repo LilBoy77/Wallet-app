@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import { authRouter } from './auth/auth.router.js';
+import { walletsRouter } from './wallets/wallets.router.js';
+import { transactionsRouter } from './transactions/transactions.router.js';
+import { transfersRouter } from './transfers/transfers.router.js';
 
 export interface ApiModuleRegistration {
   name: string;
@@ -37,4 +40,28 @@ registerApiModule({
   prefix: '/auth',
   router: authRouter,
   description: 'Authentication, session management, and RBAC module',
+});
+
+// Phase 5: Register Wallets Module (/api/v1/wallets)
+registerApiModule({
+  name: 'wallets',
+  prefix: '/wallets',
+  router: walletsRouter,
+  description: 'Core wallet balance, metadata, and audit ledger entries',
+});
+
+// Phase 5: Register Transactions Module (/api/v1/transactions)
+registerApiModule({
+  name: 'transactions',
+  prefix: '/transactions',
+  router: transactionsRouter,
+  description: 'Income, expense, metadata updates, and atomic void operations',
+});
+
+// Phase 5: Register Transfers Module (/api/v1/transfers)
+registerApiModule({
+  name: 'transfers',
+  prefix: '/transfers',
+  router: transfersRouter,
+  description: 'Atomic, idempotent, double-entry internal wallet transfers',
 });

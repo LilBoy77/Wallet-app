@@ -4,10 +4,10 @@ Aplikasi web full-stack modern untuk manajemen keuangan pribadi, pencatatan tran
 
 ---
 
-> ### 🛠️ STATUS PROYEK: PHASE 4 COMPLETED (Authentication, Session, Cookie & RBAC Verified)
-> **Status Saat Ini: Phase 4 — Authentication, Session, Cookie & RBAC (Selesai & Terverifikasi)**.  
-> Seluruh sistem autentikasi, manajemen sesi hybrid, dan kontrol akses berbasis peran telah aktif dan teruji 100% (116 automated tests di 27 test files). Fitur mencakup: hashing password Argon2id dengan auto-rehash legacy bcrypt, mitigasi timing attacks via dummy hash verification, JWT short-lived (15m, HS256) di memory klien, opaque refresh token (256-bit) yang disimpan sebagai hash SHA-256 di basis data, HTTP-only SameSite=Lax cookie, rotasi token atomik dengan row-locking (`SELECT ... FOR UPDATE`), deteksi pencurian token dengan pembatalan seluruh session family, alur forgot & reset password dengan email outbox lokal (`.outbox/`) kebal Host Header Poisoning, real-time user database check pada middleware `authenticate`, otorisasi peran `requireRole`, pencegahan IDOR via `assertOwnerOrAdmin`, deklarasi kebijakan rute struktural (`routePolicyGuard`), serta skrip maintenance `pnpm db:cleanup-tokens`.  
-> **Modul logika bisnis dompet, transaksi, dan transfer saldo internal akan dibangun pada Phase 5** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
+> ### 🛠️ STATUS PROYEK: PHASE 5 COMPLETED (Core Wallet, Transactions, & Internal Transfer Logic Verified)
+> **Status Saat Ini: Phase 5 — Core Wallet, Transaction, & Internal Transfer Logic (Selesai & Terverifikasi)**.  
+> Logika inti finansial dompet tertutup (*closed-loop internal wallet*) telah aktif dan teruji 100% (175 automated tests di 39 test files). Fitur mencakup: pemeliharaan saldo mutlak non-negatif (`balance >= 0`), double-entry ledger entries yang seimbang (`reference_type`: transaction, transfer, transaction_void, reversal), pencegahan race condition via row-level locking deterministik berurutan (`ORDER BY id ASC FOR UPDATE`) yang menjamin bebas deadlock 100%, jaminan idempotenitas per-pengguna dengan canonical payload SHA-256 hash caching, pemulihan saldo otomatis melalui transaksi pembatalan (*void transaction*) dengan kompensasi ledger, pembuatan dompet default instan secara atomik saat registrasi, serta isolasi arsitektur struktural mutasi saldo (`WalletsRepository`).  
+> **Modul kategori belanja, anggaran (budgets), dan lampiran struk akan dibangun pada Phase 6** sesuai [docs/IMPLEMENTATION_PLAN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/IMPLEMENTATION_PLAN.md).
 
 ---
 
@@ -135,3 +135,78 @@ Data seed menyediakan kredensial pengembangan berikut (password di-hash mengguna
 | **User** | Dewi Lestari | `user04@walletapp.local` | `dewilestari` | `User123!` | Rp 15.000.000 |
 | **User** | Eko Prasetyo | `user05@walletapp.local` | `ekoprasetyo` | `User123!` | Rp 3.400.000 |
 | **User** (Soft-deleted) | Deleted User Example | `deleted_user@walletapp.local` | `deleteduser` | `User123!` | Rp 0 |
+
+---
+
+## 6. Panduan Pengujian Alur Transfer Saldo Internal (via curl)
+
+Berikut alur pengujian langsung endpoint finansial Phase 5 menggunakan `curl`:
+
+### 1. Login Pengguna Pengirim (User A)
+```bash
+curl -s -X POST http://localhost:5000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"identifier":"user01@walletapp.local","password":"User123!"}'
+# Ambil access_token dari field data.tokens.accessToken dan ID dompet dari database/respons
+```
+
+### 2. Cek Daftar & Saldo Dompet User A
+```bash
+curl -s -X GET http://localhost:5000/api/v1/wallets \
+  -H "Authorization: Bearer <TOKEN_A>"
+```
+
+### 3. Catat Transaksi Pemasukan (Income / Top-up)
+```bash
+curl -s -X POST http://localhost:5000/api/v1/transactions \
+  -H "Authorization: Bearer <TOKEN_A>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "walletId": "<WALLET_ID_A>",
+    "type": "INCOME",
+    "amount": 500000,
+    "description": "Top-up saldo awal"
+  }'
+```
+
+### 4. Kirim Transfer Saldo Internal ke User B (Wajib Header Idempotency-Key)
+```bash
+curl -s -X POST http://localhost:5000/api/v1/transfers \
+  -H "Authorization: Bearer <TOKEN_A>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: aaaaaaaa-bbbb-cccc-dddd-111111111111" \
+  -d '{
+    "sourceWalletId": "<WALLET_ID_A>",
+    "targetWalletId": "<WALLET_ID_B>",
+    "amount": 250000,
+    "notes": "Pembayaran makan siang"
+  }'
+```
+
+### 5. Uji Replay Idempotensi (Request Ulang dengan Key yang Sama)
+```bash
+# Mengembalikan respons identik dari cache idempotensi tanpa memotong saldo ganda
+curl -s -X POST http://localhost:5000/api/v1/transfers \
+  -H "Authorization: Bearer <TOKEN_A>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: aaaaaaaa-bbbb-cccc-dddd-111111111111" \
+  -d '{
+    "sourceWalletId": "<WALLET_ID_A>",
+    "targetWalletId": "<WALLET_ID_B>",
+    "amount": 250000,
+    "notes": "Pembayaran makan siang"
+  }'
+```
+
+### 6. Batalkan Transaksi Pengeluaran / Pemasukan (Void Transaction)
+```bash
+curl -s -X POST http://localhost:5000/api/v1/transactions/<TX_ID>/void \
+  -H "Authorization: Bearer <TOKEN_A>" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Salah input nominal"}'
+```
+
+### 7. Verifikasi Integritas Saldo vs Ledger di Database
+```bash
+pnpm db:verify
+```

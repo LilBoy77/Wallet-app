@@ -46,6 +46,17 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 | **ADR-037** | 2026-10-16 | Manajemen Outbox Email Lokal & Guard SMTP Produksi | `accepted` | [apps/api/src/shared/mail/mail.service.ts](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/apps/api/src/shared/mail/mail.service.ts) |
 | **ADR-038** | 2026-10-16 | Batas yang Diketahui pada Stateless Access Token setelah Logout & Opsi Session Binding | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
 | **ADR-039** | 2026-10-16 | Daftar Keputusan Terbuka Arsitektur Keamanan untuk Phase 12 (OPEN-SEC-02 s/d 05) | `proposed` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-041** | 2026-10-16 | Session Binding Access Token ke Refresh Session Family untuk Pencabutan Seketika | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-042** | 2026-10-24 | Pembuatan Dompet Default secara Atomik Saat Registrasi Pengguna (D1) | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-043** | 2026-10-24 | Pencegahan Deadlock Konkuren Menggunakan Deterministic Ascending UUID Locking (D2) | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-044** | 2026-10-24 | Strategi Idempotensi Terdedikasi dengan Hashing Payload Kanonikal SHA-256 (D3) | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
+| **ADR-045** | 2026-10-24 | Mekanisme Pembatalan Transaksi (Void) Melalui Kompensasi Ledger Berpasangan (D4) | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-046** | 2026-10-24 | Isolasi Mutasi Saldo Struktural Tunggal pada WalletsRepository (D5) | `accepted` | [ARCHITECTURE.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/ARCHITECTURE.md) |
+| **ADR-047** | 2026-10-24 | Operasi Aritmatika Finansial Aman Berbasis BigInt Murni (D6) | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-048** | 2026-10-24 | Immutability Atribut Finansial Transaksi | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
+| **ADR-049** | 2026-10-24 | Scoped Idempotency Constraint pada Transaksi Transfer (Source Wallet Scoping) | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-050** | 2026-10-24 | Kebijakan Caching Idempotensi pada Request Gagal, Penegakan Atomisitas, & TTL 24 Jam | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
+
 
 ---
 
@@ -483,6 +494,100 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
   - Penambahan pengecekan ini tidak menambah round-trip jaringan database (0 additional round-trips) karena dieksekusi dalam query `SELECT ... FROM users` yang sudah ada di pipeline `authenticate`.
   - Subquery memanfaatkan partial index `idx_refresh_tokens_family_user_active`, menghasilkan waktu eksekusi sub-milidetik ($< 0.1\text{ms}$) bertipe Index Only Scan pada PostgreSQL.
 - **Status**: `accepted`
+
+---
+
+### ADR-042: Pembuatan Dompet Default secara Atomik Saat Registrasi Pengguna (D1)
+- **Konteks**: Setiap pengguna baru wajib memiliki akun dompet utama (`wallets`) untuk dapat melakukan transaksi dan menerima transfer dana, tanpa memerlukan langkah inisialisasi terpisah.
+- **Keputusan**: Registrasi pengguna di `auth.service.ts` membungkus pembuatan user dan dompet default (`Dompet Utama`, mata uang `IDR`, saldo awal 0) di dalam blok transaksi atomik yang sama (`withTransaction`).
+- **Alasan**: Mencegah kondisi pengguna yatim (*orphan user*) yang terdaftar di basis data namun tidak memiliki dompet aktif akibat kegagalan parsial jaringan atau database.
+- **Status**: `accepted`
+
+---
+
+### ADR-043: Pencegahan Deadlock Konkuren Menggunakan Deterministic Ascending UUID Locking (D2)
+- **Konteks**: Transfer saldo simultan dua arah antara Pengguna A dan Pengguna B (A $\rightarrow$ B dan B $\rightarrow$ A) pada millisecond yang sama dapat memicu deadlock basis data (`40P01`) jika row-level lock diperoleh dalam urutan acak (*circular wait*).
+- **Keputusan**: Transaksi transfer selalu mengurutkan UUID dompet pengirim dan penerima secara leksikografis menaik (`ORDER BY id ASC FOR UPDATE`) sebelum melakukan verifikasi saldo dan mutasi ledger.
+- **Alasan**: Secara matematis mengeliminasi siklus ketergantungan sumber daya (syarat Coffman untuk deadlock). Terbukti lewat pengujian konkuren 100% bebas deadlock tanpa retry.
+- **Status**: `accepted`
+
+---
+
+### ADR-044: Strategi Idempotensi Terdedikasi dengan Hashing Payload Kanonikal SHA-256 (D3)
+- **Konteks**: Pengguna dengan jaringan lambat berpotensi mengirim request transfer berulang kali dengan key yang sama. Backend harus membedakan antara percobaan replay yang sah dengan tabrakan key pada muatan request berbeda.
+- **Keputusan**:
+  1. Membuat tabel terdedikasi `idempotency_records` dengan `UNIQUE (user_id, idempotency_key)`.
+  2. Menghitung ringkasan SHA-256 dari representasi JSON kanonikal (*canonical stringify*) dari body request.
+  3. Menyimpan status HTTP dan body respons secara atomik di dalam transaksi transfer.
+  4. Request replay dengan key dan payload identik mengembalikan respons cache instan tanpa eksekusi mutasi saldo ulang. Replay dengan key sama namun isi berbeda ditolak dengan `409 IDEMPOTENCY_CONFLICT`.
+- **Status**: `accepted`
+
+---
+
+### ADR-045: Mekanisme Pembatalan Transaksi (Void) Melalui Kompensasi Ledger Berpasangan (D4)
+- **Konteks**: Kesalahan pencatatan transaksi pengeluaran atau pemasukan tidak boleh dihapus secara destruktif (*hard delete*) dari buku besar untuk menjaga integritas audit finansial historis.
+- **Keputusan**:
+  1. Endpoint `POST /transactions/:id/void` mengubah status transaksi menjadi `VOIDED` dalam transaksi database atomik.
+  2. Menuliskan entri pembalik kompensasi (*compensating ledger entry*) pada `wallet_entries` dengan `reference_type = 'transaction_void'` (kredit pembalik untuk transaksi pengeluaran, debit pembalik untuk transaksi pemasukan).
+  3. Memulihkan saldo `wallets.balance` secara presisi di bawah baris row lock.
+- **Status**: `accepted`
+
+---
+
+### ADR-046: Isolasi Mutasi Saldo Struktural Tunggal pada WalletsRepository (D5)
+- **Konteks**: Mencegah kebocoran logika mutasi saldo (*balance leak*) dan inkonsistensi antara snapshot saldo `wallets.balance` dengan catatan pembukuan `wallet_entries`.
+- **Keputusan**: Mutasi kolom `wallets.balance` secara struktural HANYA boleh dieksekusi melalui metode privat/terkelola di `WalletsRepository` (`executeBalanceMutation`) yang otomatis menulis entri ledger berpasangan dalam transaksi database atomik.
+- **Alasan**: Menghilangkan kemungkinan modifikasi saldo ad-hoc oleh controller atau service lain tanpa pencatatan buku besar. Ditegakkan melalui static code analysis test `structural-ledger-guard.test.ts`.
+- **Status**: `accepted`
+
+---
+
+### ADR-047: Operasi Aritmatika Finansial Aman Berbasis BigInt Murni (D6)
+- **Konteks**: Operasi floating-point pada JavaScript (`Number`) rentan menghasilkan artefak desimal pembulatan biner (seperti `0.1 + 0.2 !== 0.3`) dan overflow di atas `Number.MAX_SAFE_INTEGER`.
+- **Keputusan**: Seluruh kalkulasi penambahan dan pengurangan uang dikemas dalam fungsi utilitas `safeAddMoney` dan `safeSubtractMoney` di `packages/shared/src/finance.ts` menggunakan tipe native `BigInt` dan divalidasi tidak negatif.
+- **Alasan**: Menjamin akurasi 100% pada bilangan bulat Rupiah tanpa pembulatan desimal tak terduga.
+- **Status**: `accepted`
+
+---
+
+### ADR-048: Immutability Atribut Finansial Transaksi
+- **Konteks**: Perubahan atribut finansial transaksi lampau (`amount`, `type`, `wallet_id`) secara langsung pada record transaksi akan merusak konsistensi terhadap ledger entries yang telah tercatat sebelumnya.
+- **Keputusan**: Pada endpoint `PUT /transactions/:id`, atribut finansial dilarang dimodifikasi. Hanya atribut non-finansial (`description`/`notes` dan `category_id`) yang dapat diperbarui. Jika pengguna melakukan kesalahan nominal atau jenis transaksi, alur resmi yang wajib digunakan adalah melakukan *void* dan mencatat transaksi baru.
+- **Status**: `accepted`
+
+---
+
+### ADR-049: Scoped Idempotency Constraint pada Transaksi Transfer (Source Wallet Scoping)
+- **Konteks**: Pada skema awal, tabel `transfers` memiliki constraint global `UNIQUE(idempotency_key)`. Hal ini menyebabkan potensi penolakan transaksi (*cross-tenant denial*) jika dua pengguna berbeda secara kebetulan atau sengaja menghasilkan string idempotency key yang sama.
+- **Keputusan**: Mengubah constraint pada tabel `transfers` menjadi compound unique `CONSTRAINT uq_transfers_source_idempotency_key UNIQUE (source_wallet_id, idempotency_key)`, dan tabel `idempotency_records` menggunakan `CONSTRAINT uq_idempotency_user_key UNIQUE (user_id, idempotency_key)`.
+- **Alasan**: Menjamin isolasi idempotensi antar-pengguna sehingga key seorang pengguna tidak akan menginterferensi transaksi pengguna lainnya.
+- **Status**: `accepted`
+
+---
+
+### ADR-050: Kebijakan Caching Idempotensi pada Request Gagal, Penegakan Atomisitas Transaksional, dan Siklus Hidup Kedaluwarsa Kunci (24 Jam)
+- **Konteks**: Diperlukan kejelasan arsitektural mengenai perilaku idempotensi ketika request transfer gagal, jaminan atomisitas antara pencatatan rekam idempotensi dengan mutasi saldo, serta retensi penyimpanan kunci idempotensi.
+- **Keputusan**:
+  1. **Request Gagal TIDAK Di-cache**: Request transfer yang gagal validasi bisnis (seperti saldo tidak cukup / `INSUFFICIENT_BALANCE` atau dompet target tidak valid) tidak menyimpan record status `COMPLETED` maupun `FAILED` di database karena seluruh operasi berjalan di dalam database transaction atomik (`withTransaction`). Saat error dilempar, PostgreSQL melakukan `ROLLBACK`, sehingga baris `idempotency_records` ikut terhapus. Hal ini memungkinkan pengguna melakukan topup lalu mengirim ulang transfer dengan key yang persis sama tanpa tertolak.
+  2. **Penulisan Idempotency Record 100% Atomik**: Penulisan dan finalisasi `idempotency_records` (status `COMPLETED`, response body, dan HTTP code) terjadi di dalam koneksi transaksi basis data yang sama dengan mutasi `wallets`, entri `transfers`, dan pembukuan ganda `wallet_entries`. Jika salah satu gagal, seluruh rangkaian transaksi dibatalkan bersama-sama (dibuktikan via test otomatis `transfers-idempotency.test.ts`).
+  3. **Kebijakan Kedaluwarsa Kunci (24 Jam TTL)**: Setiap record idempotensi memiliki timestamp kedaluwarsa default 24 jam (`expires_at = NOW() + INTERVAL '24 hours'`). Kolom ini dilengkapi index terdedikasi `idx_idempotency_expires_at` untuk pembersihan berkala melalui scheduled maintenance task tanpa mengganggu performa query operasional.
+- **Bukti Pengujian**: `tests/finance/transfers-idempotency.test.ts` (test case `failed transfer requests are not cached in idempotency_records...` dan `idempotency_records and transfer financial effects are strictly written and committed atomically...`).
+- **Status**: `accepted`
+
+---
+
+### ADR-051: Simulasi Masuknya Saldo Ekosistem Tertutup, Gating Environment Top-up, dan Pagu Transaksional
+- **Konteks**: Berdasarkan batasan arsitektur tertutup (*closed-loop wallet* tanpa payment gateway pihak ketiga), saldo pengguna tidak dapat masuk dari sistem eksternal secara otomatis. Untuk memfasilitasi pengujian, demonstrasi alur finansial, dan pencatatan arus kas masuk pribadi, aplikasi menyediakan dua jalur penambahan saldo: `POST /wallets/my/topup` dan transaksi `INCOME`. Diperlukan kontrol keamanan agar simulasi ini tidak disalahgunakan di lingkungan produksi dan tidak memicu penambahan nominal yang tidak terkontrol.
+- **Keputusan**:
+  1. **Gating Eksklusif Simulasi Topup**: Endpoint `POST /api/v1/wallets/my/topup` dikendalikan secara mutlak oleh variabel lingkungan `ENABLE_TOPUP_SIMULATION` (default: `false`). Pada lingkungan `NODE_ENV=production`, validasi konfigurasi Zod (`envSchema`) secara preventif menggagalkan start server jika flag bernilai `true`, dan service layer secara redundan memblokir eksekusi dengan error HTTP 403 `TOPUP_SIMULATION_DISABLED`.
+  2. **Pagu Batas Atas Transaksional Terkonfigurasi**:
+     - Simulasi topup dibatasi oleh variabel `TOPUP_MAX_AMOUNT_PER_TX` (default Rp 50.000.000).
+     - Transaksi pemasukan pribadi (`INCOME`) dibatasi oleh variabel `INCOME_MAX_AMOUNT_PER_TX` (default Rp 50.000.000).
+     Percobaan transaksi melebihi pagu ditolak dengan respons HTTP 400 `LIMIT_EXCEEDED`.
+  3. **Integritas Pembukuan & Jejak Audit**: Seluruh penambahan saldo wajib menghasilkan baris mutasi kredit pada tabel buku besar `wallet_entries` (`reference_type = 'topup_simulation'` atau `'transaction'`) di dalam transaksi atomik terisolasi dan mencatat log audit pada `activity_logs`.
+- **Status**: `accepted`
+
+
 
 
 

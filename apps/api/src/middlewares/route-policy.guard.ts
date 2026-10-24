@@ -72,6 +72,96 @@ export const ROUTE_POLICY_REGISTRY: RoutePolicy[] = [
     access: 'public',
     description: 'Penyetelan ulang kata sandi menggunakan token pemulihan yang valid',
   },
+
+  // Module 2: Wallets Endpoints (Phase 5)
+  {
+    method: 'GET',
+    path: '/wallets/my',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil data dompet milik pengguna yang sedang login',
+  },
+  {
+    method: 'GET',
+    path: '/wallets/my/entries',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil riwayat mutasi audit ledger dompet milik pengguna',
+  },
+  {
+    method: 'POST',
+    path: '/wallets/my/topup',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Simulasi pengisian saldo dompet (fase pengembangan/testing)',
+  },
+  {
+    method: 'PUT',
+    path: '/wallets/my',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Memperbarui metadata non-finansial dompet pengguna',
+  },
+
+  // Module 3: Transactions Endpoints (Phase 5)
+  {
+    method: 'POST',
+    path: '/transactions',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mencatat transaksi baru (pemasukan atau pengeluaran)',
+  },
+  {
+    method: 'GET',
+    path: '/transactions',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil daftar riwayat transaksi pengguna dengan filter dan paginasi',
+  },
+  {
+    method: 'GET',
+    path: '/transactions/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil detail satu transaksi milik pengguna',
+  },
+  {
+    method: 'PUT',
+    path: '/transactions/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Memperbarui metadata non-finansial transaksi (deskripsi/kategori)',
+  },
+  {
+    method: 'DELETE',
+    path: '/transactions/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Membatalkan (void) transaksi dan menghasilkan entri pembalik di ledger',
+  },
+
+  // Module 4: Transfers Endpoints (Phase 5)
+  {
+    method: 'POST',
+    path: '/transfers',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Melakukan transfer saldo internal antar-dompet secara atomik dan idempoten',
+  },
+  {
+    method: 'GET',
+    path: '/transfers',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil daftar riwayat transfer kirim dan terima milik pengguna',
+  },
+  {
+    method: 'GET',
+    path: '/transfers/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil detail transaksi transfer milik pengguna',
+  },
 ];
 
 /**

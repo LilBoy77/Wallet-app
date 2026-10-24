@@ -15,6 +15,8 @@ import { pool, withTransaction } from '../../database/index.js';
 import { authRepository, type UserRecord } from './auth.repository.js';
 import { mailService } from '../../shared/mail/mail.service.js';
 import { UnauthorizedError, ConflictError, BadRequestError } from '../../shared/errors/index.js';
+import { walletsRepository } from '../wallets/wallets.repository.js';
+import { generateWalletNumber } from '../wallets/wallets.service.js';
 
 // Precomputed dummy hash for timing-attack mitigation on login
 let dummyArgon2Hash: string;
@@ -129,22 +131,39 @@ export class AuthService {
     // 3. Hash password with argon2id
     const passwordHash = await this.hashPassword(input.password);
 
-    // 4. Create user
-    const newUser = await authRepository.createUser(pool, {
-      username: input.username,
-      email: input.email,
-      passwordHash,
-      fullName: input.full_name,
-    });
+    // 4. Create user & default wallet atomically in single transaction (D1)
+    const newUser = await withTransaction(async (txClient) => {
+      const user = await authRepository.createUser(txClient, {
+        username: input.username,
+        email: input.email,
+        passwordHash,
+        fullName: input.full_name,
+      });
 
-    // 5. Audit log
-    await authRepository.recordActivityLog(pool, {
-      userId: newUser.id,
-      action: 'USER_REGISTERED',
-      entity: 'users',
-      entityId: newUser.id,
-      metadata: { username: newUser.username, email: newUser.email },
-      ipAddress: ip,
+      const walletNumber = generateWalletNumber();
+      await walletsRepository.createWallet(txClient, {
+        userId: user.id,
+        walletNumber,
+        currency: 'IDR',
+        initialBalance: 0n,
+        name: 'Dompet Utama',
+      });
+
+      // 5. Audit log
+      await authRepository.recordActivityLog(txClient, {
+        userId: user.id,
+        action: 'USER_REGISTERED',
+        entity: 'users',
+        entityId: user.id,
+        metadata: {
+          username: user.username,
+          email: user.email,
+          default_wallet_number: walletNumber,
+        },
+        ipAddress: ip,
+      });
+
+      return user;
     });
 
     return toUserProfileResponse(newUser);

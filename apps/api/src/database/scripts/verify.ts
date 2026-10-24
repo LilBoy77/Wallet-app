@@ -177,7 +177,37 @@ export async function runDatabaseVerification(customConnectionString?: string): 
         : `FAILED: ${transferMismatchRows.length} transfers lack balanced ledger entries!`,
     });
 
-    // 6. Soft Delete Proof Check: Verify soft-deleted rows exist
+    // 6. Global Money Conservation Check (Transfers conservation & total ledger sum)
+    const { rows: globalSumRows } = await client.query<{
+      total_wallet_balance: string;
+      total_ledger_balance: string;
+      transfer_debit_sum: string;
+      transfer_credit_sum: string;
+    }>(`
+      SELECT 
+        (SELECT COALESCE(SUM(balance), 0)::text FROM wallets) as total_wallet_balance,
+        (SELECT COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END), 0)::text FROM wallet_entries) as total_ledger_balance,
+        (SELECT COALESCE(SUM(amount), 0)::text FROM wallet_entries WHERE reference_type = 'transfer_send') as transfer_debit_sum,
+        (SELECT COALESCE(SUM(amount), 0)::text FROM wallet_entries WHERE reference_type = 'transfer_receive') as transfer_credit_sum
+    `);
+
+    const totalWalletBalance = BigInt(globalSumRows[0]?.total_wallet_balance ?? '0');
+    const totalLedgerBalance = BigInt(globalSumRows[0]?.total_ledger_balance ?? '0');
+    const transferDebitSum = BigInt(globalSumRows[0]?.transfer_debit_sum ?? '0');
+    const transferCreditSum = BigInt(globalSumRows[0]?.transfer_credit_sum ?? '0');
+
+    const globalConservationPassed =
+      totalWalletBalance === totalLedgerBalance && transferDebitSum === transferCreditSum;
+
+    checks.push({
+      name: 'Global money conservation and ledger equality',
+      passed: globalConservationPassed,
+      details: globalConservationPassed
+        ? `Global wallet balance (${totalWalletBalance}) exactly matches total ledger entries (${totalLedgerBalance}); internal transfers balanced (Debit: ${transferDebitSum}, Credit: ${transferCreditSum})`
+        : `FAILED: Conservation mismatch! Wallets: ${totalWalletBalance}, Ledger: ${totalLedgerBalance}, Transfer Debits: ${transferDebitSum}, Transfer Credits: ${transferCreditSum}`,
+    });
+
+    // 7. Soft Delete Proof Check: Verify soft-deleted rows exist
     const { rows: sdUsers } = await client.query<{ count: string }>(
       'SELECT COUNT(*) as count FROM users WHERE deleted_at IS NOT NULL'
     );

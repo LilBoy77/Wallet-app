@@ -103,6 +103,7 @@ export async function cleanTestTables(): Promise<void> {
   const client = await pool.connect();
   try {
     const tables = [
+      'idempotency_records',
       'password_resets',
       'notifications',
       'activity_logs',

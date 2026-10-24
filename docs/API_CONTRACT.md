@@ -91,6 +91,13 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 | `UNSUPPORTED_MEDIA_TYPE` | 415 | Format berkas atau tipe MIME tidak didukung. |
 | `VALIDATION_ERROR` | 422 | Kegagalan validasi skema Zod (disertai daftar rincian `field` dan `message`). |
 | `UNPROCESSABLE_ENTITY` | 422 | Validasi aturan bisnis gagal (misal saldo tidak mencukupi). |
+| `INSUFFICIENT_BALANCE` | 400 | Saldo dompet tidak mencukupi untuk transaksi pengeluaran atau transfer. |
+| `WALLET_INACTIVE` | 400 | Dompet sumber atau target berstatus nonaktif. |
+| `SAME_WALLET_TRANSFER` | 400 | Pengirim dan penerima transfer merujuk ke dompet yang sama. |
+| `TRANSACTION_ALREADY_VOIDED` | 400 | Transaksi sudah pernah dibatalkan (voided) sebelumnya. |
+| `IMMUTABLE_FINANCIAL_FIELD` | 400 | Percobaan modifikasi atribut finansial transaksi yang bersifat permanen. |
+| `IDEMPOTENCY_KEY_REQUIRED` | 400 | Header `Idempotency-Key` (UUIDv4) wajib disertakan pada request transfer. |
+| `IDEMPOTENCY_CONFLICT` | 409 | Idempotency key sudah pernah digunakan dengan request payload berbeda. |
 | `TOO_MANY_REQUESTS` | 429 | Ambang batas rate limit terlampaui (disertai header `Retry-After`). |
 | `INTERNAL_SERVER_ERROR` | 500 | Kesalahan internal sistem tak terduga (disanitasi di mode production). |
 | `NESTED_TRANSACTION_NOT_SUPPORTED` | 500 | Percobaan transaksi database bersarang pada client yang sama ditolak. |
@@ -151,26 +158,26 @@ Dokumen ini mendefinisikan konvensi API, standar struktur payload, dan katalog e
 ### Modul 3: Dompet & Saldo (`/api/v1/wallets`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/wallets/my` | User, Admin | Header: `Bearer <token>` | 200, 401 | `wallets` | `PLANNED` |
-| `GET` | `/wallets/my/entries` | User, Admin | Query: `page`, `limit`, `type` (mutasi ledger) | 200, 401 | `wallet_entries` | `PLANNED` |
-| `POST` | `/wallets/my/topup` | User, Admin | Body: `amount` (simulasi top-up internal) | 200, 400, 422 | `wallets`, `wallet_entries` | `PLANNED` |
+| `GET` | `/wallets/my` | User, Admin | Header: `Bearer <token>` | 200, 401 | `wallets` | `VERIFIED` |
+| `GET` | `/wallets/my/entries` | User, Admin | Query: `page`, `limit`, `type` | 200, 401 | `wallet_entries` | `VERIFIED` |
+| `POST` | `/wallets/my/topup` | User, Admin | Header: `Bearer <token>`<br/>Body: `amount`<br/>*Gated by env flag `ENABLE_TOPUP_SIMULATION` (default off, disallow on production)* | 200, 400, 401, 403, 422, 429 | `wallets`, `wallet_entries`, `activity_logs` | `VERIFIED` |
+| `PUT` | `/wallets/my` | User, Admin | Header: `Bearer <token>`<br/>Body: `name` | 200, 400, 401, 422 | `wallets`, `activity_logs` | `VERIFIED` |
 
 ### Modul 4: Transaksi (`/api/v1/transactions`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `GET` | `/transactions` | User, Admin | Query: `page`, `limit`, `type`, `category_id`, `search`, `start_date`, `end_date`, `sort_by`, `order` | 200, 401 | `transactions`, `categories`, `tags` | `PLANNED` |
-| `POST` | `/transactions` | User, Admin | Body: `type`, `category_id`, `amount`, `transaction_date`, `description`, `tag_ids` | 201, 400, 422 | `transactions`, `wallets`, `wallet_entries`, `transaction_tags` | `PLANNED` |
-| `GET` | `/transactions/:id` | User, Admin | Param: `id` | 200, 401, 404 | `transactions`, `attachments`, `tags` | `PLANNED` |
-| `PUT` | `/transactions/:id` | User, Admin | Param: `id`, Body: `category_id`, `description`, `tag_ids` | 200, 400, 404, 422 | `transactions`, `transaction_tags` | `PLANNED` |
-| `DELETE` | `/transactions/:id` | User, Admin | Param: `id` (Soft Delete) | 200, 401, 404 | `transactions` | `PLANNED` |
-| `GET` | `/transactions/summary/monthly` | User, Admin | Query: `year`, `month` | 200, 401 | `transactions` | `PLANNED` |
+| `POST` | `/transactions` | User, Admin | Body: `walletId`, `type`, `amount`, `categoryId`, `description`, `transactionDate` | 201, 400, 404, 422 | `transactions`, `wallets`, `wallet_entries` | `VERIFIED` |
+| `GET` | `/transactions` | User, Admin | Query: `page`, `limit`, `walletId`, `type`, `status`, `startDate`, `endDate`, `sortBy`, `order` | 200, 401 | `transactions` | `VERIFIED` |
+| `GET` | `/transactions/:id` | User, Admin | Param: `id` | 200, 401, 404 | `transactions` | `VERIFIED` |
+| `PUT` | `/transactions/:id` | User, Admin | Param: `id`, Body: `categoryId`, `description` | 200, 400, 404, 422 | `transactions` | `VERIFIED` |
+| `POST` | `/transactions/:id/void` | User, Admin | Param: `id`, Body: `reason` | 200, 400, 404, 422 | `transactions`, `wallets`, `wallet_entries` | `VERIFIED` |
 
 ### Modul 5: Transfer Saldo Internal (`/api/v1/transfers`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST` | `/transfers` | User, Admin | Header: `Idempotency-Key`<br/>Body: `target_wallet_number`, `amount`, `note` | 201, 400, 404, 409, 422 | `transfers`, `wallets`, `wallet_entries` | `PLANNED` |
-| `GET` | `/transfers` | User, Admin | Query: `page`, `limit`, `direction` ('sent', 'received') | 200, 401 | `transfers`, `wallets`, `users` | `PLANNED` |
-| `GET` | `/transfers/:id` | User, Admin | Param: `id` | 200, 401, 404 | `transfers`, `wallets` | `PLANNED` |
+| `POST` | `/transfers` | User, Admin | Header: `Idempotency-Key` (UUIDv4)<br/>Body: `sourceWalletId`, `targetWalletId`, `amount`, `notes` | 201, 400, 404, 409, 422 | `transfers`, `wallets`, `wallet_entries`, `idempotency_records` | `VERIFIED` |
+| `GET` | `/transfers` | User, Admin | Query: `page`, `limit`, `direction` ('sent', 'received', 'all') | 200, 401 | `transfers`, `wallets` | `VERIFIED` |
+| `GET` | `/transfers/:id` | User, Admin | Param: `id` | 200, 401, 404 | `transfers`, `wallets` | `VERIFIED` |
 
 ### Modul 6: Kategori (`/api/v1/categories`)
 | Method | Endpoint | Peran | Parameter / Body | Status Code | Tabel Terkait | Status |

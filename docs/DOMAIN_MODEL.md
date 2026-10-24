@@ -66,38 +66,75 @@ Pada operasi transfer saldo internal dari Pengguna A ke Pengguna B:
 
 ---
 
-### D. Idempotensi Permintaan Transfer (Idempotency Key) `[DECIDED]`
-- Pengguna yang mengalami lag jaringan dapat menekan tombol "Kirim Transfer" berulang kali.
-- Klien wajib menyertakan header `Idempotency-Key` (UUIDv4) pada setiap request `POST /api/v1/transfers`.
-- Backend memvalidasi apakah key tersebut sudah pernah diproses dalam kurun waktu 24 jam terakhir. Jika sudah, sistem mengembalikan hasil transaksi terdahulu tanpa mengeksekusi mutasi saldo ulang.
+### D. Idempotensi Permintaan Transfer (Idempotency Key & Canonical Hashing) `[DECIDED]`
+- Pengguna yang mengalami latensi jaringan dapat mengirimkan request `POST /api/v1/transfers` berulang kali.
+- Klien wajib menyertakan header `Idempotency-Key` (UUIDv4).
+- Idempotensi diproteksi di tabel terdedikasi `idempotency_records` dengan `UNIQUE (user_id, idempotency_key)`:
+  - Backend menghitung canonical SHA-256 hash dari payload JSON request (`canonicalStringify`).
+  - Jika request pertama berhasil, status HTTP dan response body dicatat secara atomik di dalam transaksi transfer yang sama.
+  - Jika request ulang dikirim dengan key yang sama dan payload identik: sistem langsung mengembalikan cached response tanpa memotong saldo berulang.
+  - Jika key yang sama digunakan dengan payload berbeda: backend menolak dengan error `409 IDEMPOTENCY_CONFLICT`.
+- Di tabel `transfers`, kolom `idempotency_key` dijamin unik per dompet sumber via constraint `UNIQUE (source_wallet_id, idempotency_key)`.
 
 ---
 
-### E. Kebijakan Saldo Negatif `[DECIDED]`
+### E. Kebijakan Saldo Negatif & Safe Arithmetic `[DECIDED]`
 - **Aturan Tegas**: Saldo dompet dalam ekosistem Wallet App **TIDAK BOLEH PERNAH BERNILAI NEGATIF** (`balance >= 0`).
 - **Penegakan Multilapis**:
   1. *Database Constraint*: `CONSTRAINT chk_wallet_balance_non_negative CHECK (balance >= 0)`.
-  2. *Service Logic*: Validasi eksplisit sebelum kalkulasi pengurangan saldo.
+  2. *Row Lock Check*: Validasi eksplisit di service layer di bawah exclusive row lock (`SELECT ... FOR UPDATE`).
+  3. *Safe BigInt Arithmetic*: Operasi penambahan dan pengurangan menggunakan utilitas `safeAddMoney` dan `safeSubtractMoney` di `packages/shared/src/finance.ts` untuk mencegah floating point artifacts dan runtime overflow.
 
 ---
 
-## 3. State Machine Status Transaksi & Transfer `[DECIDED]`
+### F. Integritas Ledger & Mutasi Saldo Atomik `[DECIDED]`
+- **Single Point of Balance Mutation**: Mutasi `wallets.balance` secara ketat hanya diizinkan melalui `WalletsRepository` (`executeBalanceMutation`) di dalam transaksi database atomik.
+- **Setiap Mutasi Bersifat Berpasangan dengan Ledger**:
+  - Transaksi `INCOME`: 1 entry `CREDIT` pada `wallet_entries`.
+  - Transaksi `EXPENSE`: 1 entry `DEBIT` pada `wallet_entries`.
+  - Transfer internal: 2 entries berpasangan (1 `DEBIT` pada dompet pengirim, 1 `CREDIT` pada dompet penerima) dengan `reference_type = 'transfer'`.
+  - Void transaksi: 1 entry kompensasi (`DEBIT` pembalik untuk INCOME, `CREDIT` pembalik untuk EXPENSE) dengan `reference_type = 'transaction_void'`.
+- **Konservasi Saldo Total**: Total debit transfer internal selalu identik dengan total kredit transfer internal ($\sum \text{debit} = \sum \text{credit}$).
 
+---
+
+### G. Model Masuknya Uang pada Ekosistem Tertutup (Closed-Loop Simulation) `[DECIDED]`
+- Sistem ini dirancang sebagai **simulasi dompet tertutup (closed-loop wallet)** tanpa ketergantungan pada payment gateway pihak ketiga eksternal (sesuai batasan proyek pada [AGENTS.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/AGENTS.md)).
+- Saldo pengguna dalam simulasi ini dapat bertambah ke dalam ekosistem hanya melalui 2 (dua) mekanisme terkontrol:
+  1. **Simulasi Top-Up (`POST /api/v1/wallets/my/topup`)**:
+     - Ditujukan khusus untuk kebutuhan simulasi pengisian saldo pada fase pengembangan dan pengujian (*testing/development*).
+     - **Gating Keamanan Ketat**: Endpoint ini hanya aktif jika flag environment `ENABLE_TOPUP_SIMULATION=true`. Secara bawaan (*default*), flag bernilai `false`. Backend secara otomatis menolak start atau memblokir akses (HTTP 403 `TOPUP_SIMULATION_DISABLED`) apabila `NODE_ENV=production`.
+     - **Batas Maksimum Nominal**: Dibatasi oleh pagu batas atas per transaksi yang dikonfigurasi melalui `TOPUP_MAX_AMOUNT_PER_TX` (default Rp 50.000.000) dengan kode error HTTP 400 `LIMIT_EXCEEDED` jika terlampaui.
+     - **Pencatatan & Audit**: Setiap simulasi topup dicatat sebagai entri kredit pada `wallet_entries` (`reference_type = 'topup_simulation'`) dan diaudit di `activity_logs`.
+  2. **Pencatatan Transaksi Pemasukan Pribadi (`POST /api/v1/transactions` dengan `type: 'income'`)**:
+     - Mengakomodasi pencatatan arus kas masuk pengguna (seperti penerimaan gaji tunai, hasil usaha, atau dividen) ke dalam saldo dompet.
+     - **Batas Maksimum Nominal**: Dibatasi oleh pagu batas atas per transaksi yang dikonfigurasi melalui `INCOME_MAX_AMOUNT_PER_TX` (default Rp 50.000.000) dengan kode error HTTP 400 `LIMIT_EXCEEDED` jika terlampaui.
+     - **Pencatatan & Audit**: Menghasilkan baris mutasi kredit ledger `wallet_entries` berpasangan dengan rekaman transaksi berstatus `COMPLETED`.
+
+---
+
+## 3. State Machine Transaksi & Transfer `[DECIDED]`
+
+### A. State Machine Transaksi (Income / Expense)
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: Inisiasi Transaksi / Transfer
-    PENDING --> SUCCESS: Lock Acquired & Saldo Berhasil Dipotong & Ditambah
-    PENDING --> FAILED: Saldo Kurang / Akun Terblokir / Idempotency Conflict
-    SUCCESS --> REVERSED: Admin/System Rollback (Opsional/Audit Khusus)
-    FAILED --> [*]
-    REVERSED --> [*]
-    SUCCESS --> [*]
+    [*] --> COMPLETED: Pencatatan Transaksi Berhasil (Saldo Dimutasi & Ledger Ditulis)
+    COMPLETED --> VOIDED: Pembatalan Transaksi (/transactions/:id/void)
+    VOIDED --> [*]: Saldo Dikembalikan & Entri Pembalik Dicatat
 ```
 
-- **PENDING**: Transaksi dibuat dan sedang diproses dalam isolasi transaksi database.
-- **SUCCESS**: Mutasi saldo berhasil dikomit pada `wallets` dan entri debit/kredit tersimpan di `wallet_entries`.
-- **FAILED**: Validasi bisnis gagal atau transaksi database mengalami rollback.
-- **REVERSED**: Kondisi khusus koreksi audit (tidak menghapus data, melainkan mencatat mutasi pembalik).
+- **COMPLETED**: Transaksi aktif. Atribut finansial (`amount`, `type`, `wallet_id`) bersifat kekal (*immutable*). Hanya `notes` dan `category_id` yang dapat diperbarui.
+- **VOIDED**: Transaksi dibatalkan secara permanen. Transaksi yang sudah dibatalkan tidak dapat di-void ulang (menghasilkan `400 BAD_REQUEST`).
+
+### B. State Machine Transfer Saldo
+```mermaid
+stateDiagram-v2
+    [*] --> PROCESSING: Lock Acquired (ORDER BY id ASC FOR UPDATE)
+    PROCESSING --> SUCCESS: Saldo Terpotong, Ditambah, Ledger Ditulis, Idempotency Dicatat
+    PROCESSING --> FAILED: Saldo Tidak Cukup / Wallet Tidak Aktif / Rollback
+    SUCCESS --> [*]
+    FAILED --> [*]
+```
 
 ---
 

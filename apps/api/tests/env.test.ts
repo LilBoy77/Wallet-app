@@ -75,4 +75,20 @@ describe('Environment Configuration Validation (Fail-Fast with Zod)', () => {
       "MAIL_TRANSPORT cannot be 'outbox' in production"
     );
   });
+
+  it('should fail in production when ENABLE_TOPUP_SIMULATION is enabled', () => {
+    const invalidProdConfig = {
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/wallet_db',
+      JWT_ACCESS_SECRET: 'production_valid_access_key_at_least_32_chars_long_123',
+      JWT_REFRESH_SECRET: 'production_valid_refresh_key_at_least_32_chars_long_123',
+      MAIL_TRANSPORT: 'smtp',
+      SMTP_HOST: 'smtp.mail.example.com',
+      ENABLE_TOPUP_SIMULATION: true,
+    };
+
+    expect(() => validateEnv(invalidProdConfig)).toThrow(
+      'ENABLE_TOPUP_SIMULATION must be disabled (false) in production'
+    );
+  });
 });

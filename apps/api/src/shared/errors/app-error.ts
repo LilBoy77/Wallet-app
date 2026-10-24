@@ -37,8 +37,19 @@ export class AppError extends Error {
  * 400 Bad Request
  */
 export class BadRequestError extends AppError {
-  constructor(message = 'Permintaan tidak valid', details?: unknown) {
-    super(message, 400, ERROR_CODES.BAD_REQUEST, details);
+  constructor(
+    message = 'Permintaan tidak valid',
+    codeOrDetails: unknown = ERROR_CODES.BAD_REQUEST,
+    details?: unknown
+  ) {
+    if (
+      typeof codeOrDetails === 'string' &&
+      (Object.values(ERROR_CODES) as string[]).includes(codeOrDetails)
+    ) {
+      super(message, 400, codeOrDetails as ErrorCode, details);
+    } else {
+      super(message, 400, ERROR_CODES.BAD_REQUEST, codeOrDetails);
+    }
   }
 }
 

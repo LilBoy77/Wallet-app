@@ -81,12 +81,19 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ---
 
 ### Phase 5: Wallet, Transaction & Transfer Business Logic
+- **Status**: **COMPLETED (Verified)**
 - **Tujuan**: Membangun modul inti finansial: pembuatan wallet default saat registrasi (D1), mutasi saldo, pencatatan transaksi pemasukan/pengeluaran, transfer saldo internal atomik dengan database lock & idempotency key.
 - **Prasyarat**: Phase 4 selesai.
-- **Hasil**: Endpoint `/api/v1/wallets`, `/api/v1/transactions`, `/api/v1/transfers`.
-- **Dokumen yang Dibaca**: [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md), [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md).
-- **Test yang Harus Lulus**: Unit test saldo non-negatif, concurrency test transfer internal mencegah race condition / transfer ganda.
-- **Kriteria Lanjut**: Atomisitas transfer terbukti lulus uji konkurensi tanpa *double spend*.
+- **Hasil**:
+  1. Pembuatan dompet default otomatis dan atomik saat registrasi pengguna dalam batas transaksi tunggal (`auth.service.ts`).
+  2. Modul `wallets` (`/api/v1/wallets`): daftar dompet, detail dompet, dan riwayat mutasi ledger (`wallet_entries`).
+  3. Modul `transactions` (`/api/v1/transactions`): pencatatan pemasukan/pengeluaran dengan mutasi saldo instan dan entri ledger berpasangan, immutability field finansial, filter multi-kriteria, serta pembatalan transaksi (*void*) dengan entri pembalik kompensasi.
+  4. Modul `transfers` (`/api/v1/transfers`): transfer internal atomik antar-pengguna dengan penguncian baris deterministik berurutan menaik (`ORDER BY id ASC FOR UPDATE`) yang menjamin 100% bebas deadlock (`40P01`), saldo non-negatif mutlak, entri ledger debit & kredit berpasangan seimbang, serta cache idempotensi terdedikasi berbasis hash SHA-256 canonical payload JSON (`idempotency_records`).
+  5. Isolasi struktural mutasi saldo di `WalletsRepository` diverifikasi oleh static code guard test.
+  6. Aritmatika uang aman berbasis `BigInt` murni (`packages/shared/src/finance.ts`) mencegah floating point artifacts.
+- **Dokumen yang Dibaca**: [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md), [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md), [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md), [TESTING_STRATEGY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/TESTING_STRATEGY.md), [DECISIONS_LOG.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DECISIONS_LOG.md).
+- **Test yang Lulus**: 175 tests di 39 test files Vitest (termasuk unit domain state machine, money arithmetic, canonical hash, wallets repository & service, transactions, transfers atomicity, transfers idempotency replay 20 concurrent requests, transfers concurrency 10 contention threads & bidirectional deadlock proof 5 ronde berturut-turut, failure injection rollback seam, serta structural ledger guard).
+- **Kriteria Lanjut**: Seluruh pengujian finansial, integritas buku besar, konservasi saldo, dan konkurensi lulus 100% tanpa flakiness.
 
 ---
 

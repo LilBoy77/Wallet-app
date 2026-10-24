@@ -6,5 +6,8 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     fileParallelism: false,
+    env: {
+      ENABLE_TOPUP_SIMULATION: 'true',
+    },
   },
 });

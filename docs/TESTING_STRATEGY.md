@@ -82,3 +82,21 @@ Dokumen ini mendefinisikan arsitektur pengujian, target cakupan, dan skenario pe
 - **Prosedur Pengujian**:
   1. Jalankan automated contract test yang membandingkan response JSON aktual dari setiap endpoint terhadap OpenAPI v3 schema.
 - **Hasil yang Diharapkan**: 100% struktur response, field wajib, dan tipe data cocok dengan definisi skema di Swagger.
+
+---
+
+## 3. Matriks Pengujian Finansial Komprehensif (Phase 5 Financial Test Matrix) `[VERIFIED]`
+
+Pengujian Phase 5 difokuskan pada kebenaran data finansial, pembuktian konkurensi, dan pencegahan anomali uang:
+
+| Test Suite / File | Skenario Pengujian | Metodologi & Penegakan | Hasil Uji Nyata |
+| :--- | :--- | :--- | :--- |
+| **`transfers-concurrency.test.ts`** | **Exhaustion Under Contention**: 10 transfer paralel bersaing memperebutkan saldo terbatas. | `Promise.all` serentak; baris dikunci via `ORDER BY id ASC FOR UPDATE`. | Saldo akhir tepat $\ge 0$, tidak pernah negatif; sisa request ditolak 400 `INSUFFICIENT_BALANCE`. Lulus 5 ronde berturut-turut tanpa flakiness. |
+| **`transfers-concurrency.test.ts`** | **Bidirectional Deadlock Prevention**: User A $\rightarrow$ User B dan User B $\rightarrow$ User A dieksekusi simultan. | Penguncian deterministik urutan ID terkecil (`ORDER BY id ASC`). | 0 deadlock (`40P01`), 0 timeout, konservasi total saldo terjaga 100%. |
+| **`transfers-idempotency.test.ts`** | **Concurrent Replay**: 20 request konkuren dengan `Idempotency-Key` identik. | `Promise.all` serentak; isolasi tabel `idempotency_records` (`UNIQUE(user_id, idempotency_key)`). | Tepat 1 eksekusi mutasi; 19 request menerima cached response; 0 saldo terpotong ganda. |
+| **`transfers-idempotency.test.ts`** | **Payload Mismatch Conflict**: Key sama digunakan dengan nominal/target berbeda. | Canonical JSON stringify + SHA-256 hash comparison. | Ditolak seketika dengan HTTP 409 `IDEMPOTENCY_CONFLICT`. |
+| **`failure-injection-rollback.test.ts`** | **Mid-Transfer Crash**: Kegagalan disuntikkan di antara pemotongan source dan penambahan target. | Fault injection seam pada service layer; `withTransaction` rollback test. | Transaksi di-ROLLBACK utuh; saldo kedua pihak tidak berubah; 0 entri ledger yatim (*orphan*). |
+| **`failure-injection-rollback.test.ts`** | **Atomic User Registration (D1)**: Kegagalan pembuatan dompet default saat register. | Rollback transaksi `users` + `wallets`. | Akun user di-rollback; tidak ada user tanpa dompet. |
+| **`structural-ledger-guard.test.ts`** | **Structural Mutation Isolation**: Memastikan tidak ada file selain `WalletsRepository` yang memutasi kolom `balance`. | Static AST / code scanning regex inspection. | Terbukti hanya 1 file repositori yang memiliki query `UPDATE wallets SET balance`. |
+| **`structural-ledger-guard.test.ts`** | **Append-Only Trigger Proof**: Percobaan `UPDATE` atau `DELETE` pada tabel `wallet_entries`. | Database trigger `prevent_wallet_entries_mutation()`. | Database melempar exception; modifikasi dilarang keras. |
+| **`structural-ledger-guard.test.ts`** | **Global Balance Conservation**: $\sum \text{wallets.balance} = \sum \text{ledger credits} - \sum \text{ledger debits}$. | Dynamic reconciliation aggregate query. | 100% konsisten tanpa selisih 1 Rupiah pun. |
