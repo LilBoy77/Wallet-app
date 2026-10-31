@@ -293,7 +293,9 @@ describe('Financial Module - Transfer Idempotency & Concurrency Coordination', (
 
     // Verify baseline table counts
     const countTransfersBefore = await pool.query('SELECT COUNT(*) as count FROM transfers');
-    const countIdempotencyBefore = await pool.query('SELECT COUNT(*) as count FROM idempotency_records');
+    const countIdempotencyBefore = await pool.query(
+      'SELECT COUNT(*) as count FROM idempotency_records'
+    );
     const countEntriesBefore = await pool.query('SELECT COUNT(*) as count FROM wallet_entries');
 
     // Execute transfer
@@ -311,7 +313,9 @@ describe('Financial Module - Transfer Idempotency & Concurrency Coordination', (
 
     // Both transfer, idempotency record, and ledger entries must be incremented together
     const countTransfersAfter = await pool.query('SELECT COUNT(*) as count FROM transfers');
-    const countIdempotencyAfter = await pool.query('SELECT COUNT(*) as count FROM idempotency_records');
+    const countIdempotencyAfter = await pool.query(
+      'SELECT COUNT(*) as count FROM idempotency_records'
+    );
     const countEntriesAfter = await pool.query('SELECT COUNT(*) as count FROM wallet_entries');
 
     expect(parseInt(countTransfersAfter.rows[0].count, 10)).toBe(

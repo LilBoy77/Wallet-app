@@ -1,15 +1,17 @@
 import { Router } from 'express';
-import { env } from '../../config/env.js';
-import { authenticate, validate, createRateLimiter } from '../../middlewares/index.js';
+import {
+  authenticate,
+  validate,
+  createRateLimiter,
+  resolveRateLimitMax,
+} from '../../middlewares/index.js';
 import { asyncHandler } from '../../shared/errors/index.js';
 import { topupSimulationInputSchema, updateWalletInputSchema } from '@wallet-app/shared';
 import { walletsController } from './wallets.controller.js';
 
-const isTest = env.NODE_ENV === 'test';
-
 export const topupLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: isTest ? 1000 : 30,
+  max: resolveRateLimitMax(30),
   message: 'Terlalu banyak permintaan simulasi topup. Silakan coba lagi nanti.',
 });
 

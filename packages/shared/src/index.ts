@@ -18,3 +18,7 @@ export interface HealthCheckPayload {
 
 export * from './auth.js';
 export * from './finance.js';
+export * from './categories.js';
+export * from './budgets.js';
+export * from './attachments.js';
+export * from './activity-logs.js';

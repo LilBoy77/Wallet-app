@@ -17,6 +17,8 @@ import { mailService } from '../../shared/mail/mail.service.js';
 import { UnauthorizedError, ConflictError, BadRequestError } from '../../shared/errors/index.js';
 import { walletsRepository } from '../wallets/wallets.repository.js';
 import { generateWalletNumber } from '../wallets/wallets.service.js';
+import { ACTIVITY_ACTIONS } from '../../shared/logging/activity-log.helper.js';
+import { logger } from '../../shared/logging/logger.js';
 
 // Precomputed dummy hash for timing-attack mitigation on login
 let dummyArgon2Hash: string;
@@ -152,12 +154,11 @@ export class AuthService {
       // 5. Audit log
       await authRepository.recordActivityLog(txClient, {
         userId: user.id,
-        action: 'USER_REGISTERED',
+        action: ACTIVITY_ACTIONS.USER_REGISTERED,
         entity: 'users',
         entityId: user.id,
         metadata: {
           username: user.username,
-          email: user.email,
           default_wallet_number: walletNumber,
         },
         ipAddress: ip,
@@ -177,16 +178,34 @@ export class AuthService {
     tokens: AuthTokens;
     rawRefreshToken: string;
   }> {
-    const user = await authRepository.findUserByEmail(pool, input.email);
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const user = await authRepository.findUserByEmailIncludingDeleted(pool, normalizedEmail);
 
     if (!user) {
       // Execute dummy timing verification to prevent account enumeration
       await this.verifyDummyPassword(input.password);
+      // Do NOT write to append-only activity_logs from unauthenticated nonexistent email paths;
+      // record to structured application logger with SHA-256 of normalized email and IP only.
+      logger.warn(
+        {
+          event: ACTIVITY_ACTIONS.USER_LOGIN_FAILED,
+          email_hash: hashSha256(normalizedEmail),
+          ip_address: ip,
+          reason: 'UNREGISTERED_EMAIL',
+        },
+        'Percobaan login gagal pada email yang tidak terdaftar'
+      );
+      throw new UnauthorizedError('Email atau kata sandi tidak valid');
+    }
+
+    // Deactivated / Soft-deleted existing users cannot login
+    if (user.deleted_at !== null || !user.is_active) {
+      await this.verifyDummyPassword(input.password);
       await authRepository.recordActivityLog(pool, {
-        userId: null,
-        action: 'USER_LOGIN_FAILED',
+        userId: user.id,
+        action: ACTIVITY_ACTIONS.USER_LOGIN_FAILED,
         entity: 'auth',
-        metadata: { email: input.email, reason: 'INVALID_CREDENTIALS' },
+        metadata: { reason: 'ACCOUNT_INACTIVE' },
         ipAddress: ip,
       });
       throw new UnauthorizedError('Email atau kata sandi tidak valid');
@@ -196,21 +215,12 @@ export class AuthService {
     if (!valid) {
       await authRepository.recordActivityLog(pool, {
         userId: user.id,
-        action: 'USER_LOGIN_FAILED',
+        action: ACTIVITY_ACTIONS.USER_LOGIN_FAILED,
         entity: 'auth',
-        metadata: { email: user.email, reason: 'INVALID_CREDENTIALS' },
+        metadata: { reason: 'INVALID_CREDENTIALS' },
         ipAddress: ip,
       });
       throw new UnauthorizedError('Email atau kata sandi tidak valid');
-    }
-
-    // Deactivated / Soft-deleted users cannot login
-    if (user.deleted_at !== null) {
-      throw new UnauthorizedError('Akun pengguna dinonaktifkan atau telah dihapus');
-    }
-
-    if (!user.is_active) {
-      throw new UnauthorizedError('Akun pengguna dinonaktifkan oleh administrator');
     }
 
     // Auto-rehash password if cost parameters changed or upgrading from bcrypt
@@ -235,9 +245,9 @@ export class AuthService {
 
     await authRepository.recordActivityLog(pool, {
       userId: user.id,
-      action: 'USER_LOGIN_SUCCESS',
+      action: ACTIVITY_ACTIONS.USER_LOGIN,
       entity: 'auth',
-      metadata: { email: user.email },
+      metadata: {},
       ipAddress: ip,
     });
 
@@ -280,10 +290,10 @@ export class AuthService {
 
         await authRepository.recordActivityLog(client, {
           userId: tokenRecord.user_id,
-          action: 'TOKEN_REUSE_DETECTED',
+          action: ACTIVITY_ACTIONS.TOKEN_REUSE_DETECTED,
           entity: 'refresh_tokens',
           entityId: tokenRecord.id,
-          metadata: { familyId: tokenRecord.family_id },
+          metadata: { family_id: tokenRecord.family_id },
           ipAddress: ip,
         });
 
@@ -321,9 +331,9 @@ export class AuthService {
 
       await authRepository.recordActivityLog(client, {
         userId: user.id,
-        action: 'TOKEN_REFRESH_SUCCESS',
+        action: ACTIVITY_ACTIONS.TOKEN_REFRESHED,
         entity: 'auth',
-        metadata: { familyId },
+        metadata: { family_id: familyId },
         ipAddress: ip,
       });
 
@@ -386,7 +396,7 @@ export class AuthService {
     if (userId) {
       await authRepository.recordActivityLog(pool, {
         userId,
-        action: 'USER_LOGOUT',
+        action: ACTIVITY_ACTIONS.USER_LOGOUT,
         entity: 'auth',
         ipAddress: ip,
       });
@@ -397,7 +407,7 @@ export class AuthService {
     await authRepository.revokeAllUserRefreshTokens(pool, userId);
     await authRepository.recordActivityLog(pool, {
       userId,
-      action: 'USER_LOGOUT_ALL',
+      action: ACTIVITY_ACTIONS.USER_LOGOUT_ALL,
       entity: 'auth',
       ipAddress: ip,
     });
@@ -422,7 +432,7 @@ export class AuthService {
       await authRepository.revokeAllUserRefreshTokens(client, userId);
       await authRepository.recordActivityLog(client, {
         userId,
-        action: 'PASSWORD_CHANGED',
+        action: ACTIVITY_ACTIONS.PASSWORD_CHANGED,
         entity: 'users',
         entityId: userId,
         ipAddress: ip,
@@ -431,7 +441,8 @@ export class AuthService {
   }
 
   async forgotPassword(email: string, ip: string): Promise<void> {
-    const user = await authRepository.findUserByEmail(pool, email);
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await authRepository.findUserByEmail(pool, normalizedEmail);
 
     if (user && user.is_active && user.deleted_at === null) {
       // Invalidate existing unused tokens for this user
@@ -458,20 +469,21 @@ export class AuthService {
 
       await authRepository.recordActivityLog(pool, {
         userId: user.id,
-        action: 'PASSWORD_RESET_REQUESTED',
+        action: ACTIVITY_ACTIONS.PASSWORD_RESET_REQUESTED,
         entity: 'password_resets',
-        metadata: { email: user.email },
+        metadata: {},
         ipAddress: ip,
       });
     } else {
-      // For nonexistent or deactivated email, record log with null userId
-      await authRepository.recordActivityLog(pool, {
-        userId: null,
-        action: 'PASSWORD_RESET_REQUESTED',
-        entity: 'password_resets',
-        metadata: { email },
-        ipAddress: ip,
-      });
+      logger.warn(
+        {
+          event: ACTIVITY_ACTIONS.PASSWORD_RESET_REQUESTED,
+          email_hash: hashSha256(normalizedEmail),
+          ip_address: ip,
+          reason: !user ? 'UNREGISTERED_EMAIL' : 'ACCOUNT_INACTIVE',
+        },
+        'Permintaan pemulihan kata sandi diabaikan untuk email yang tidak terdaftar atau nonaktif'
+      );
     }
   }
 
@@ -495,7 +507,7 @@ export class AuthService {
 
       await authRepository.recordActivityLog(client, {
         userId: resetRecord.user_id,
-        action: 'PASSWORD_RESET_COMPLETED',
+        action: ACTIVITY_ACTIONS.PASSWORD_RESET_COMPLETED,
         entity: 'users',
         entityId: resetRecord.user_id,
         ipAddress: ip,

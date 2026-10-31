@@ -14,14 +14,15 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 | **Phase 2** | Database Schema, Migration & Seeder | **COMPLETED (Verified)** |
 | **Phase 3** | Backend Foundation, Configuration & Error Handling | **COMPLETED (Verified)** |
 | **Phase 4** | Authentication, Session, Cookie & RBAC | **COMPLETED (Verified)** |
-| **Phase 5** | Wallet, Transaction & Transfer Business Logic | `PENDING (Next Up)` |
-| **Phase 6** | Categories, Budgets, Attachments & Activity Logs | `PENDING` |
-| **Phase 7** | Frontend Foundation, Design System & Routing | `PENDING` |
+| **Phase 5** | Wallet, Transaction & Transfer Business Logic | **COMPLETED (Verified)** |
+| **Phase 6** | Categories, Budgets, Attachments & Activity Logs | **COMPLETED (Verified)** |
+| **Phase 7** | Frontend Foundation, Design System & Routing | `PENDING (Next Up)` |
 | **Phase 8** | Dashboard Integration & Core CRUD Modules | `PENDING` |
 | **Phase 9** | Search, Filter, Sort, Pagination, Upload & Notification | `PENDING` |
 | **Phase 10** | Swagger/OpenAPI, Postman & Integration Testing | `PENDING` |
 | **Phase 11** | Security Hardening, Responsive Review & Acceptance | `PENDING` |
 | **Phase 12** | Deployment Preparation & Final Documentation Handover | `PENDING` |
+
 
 ---
 
@@ -98,12 +99,19 @@ Dokumen ini adalah rencana kerja master bertahap untuk pengembangan **Wallet App
 ---
 
 ### Phase 6: Categories, Budgets, Attachments & Activity Logs
-- **Tujuan**: Mengimplementasikan CRUD kategori, manajemen anggaran per periode, upload bukti kuitansi (MIME & size check), dan pencatatan audit log otomatis.
+- **Status**: **COMPLETED (Verified)**
+- **Tujuan**: Mengimplementasikan CRUD kategori dengan proteksi sistem, manajemen anggaran per periode dengan realisasi BigInt basis points, upload bukti kuitansi aman dengan verifikasi magic bytes dan proteksi race condition, serta jejak audit otomatis yang kebal mutasi.
 - **Prasyarat**: Phase 5 selesai.
-- **Hasil**: Endpoint kategori, anggaran, upload attachment, dan audit log.
-- **Dokumen yang Dibaca**: [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md).
-- **Test yang Harus Lulus**: Upload validation test (tipe file ilegal ditolak), soft delete kategori & transaksi test.
-- **Kriteria Lanjut**: Seluruh $\ge 6$ entitas CRUD di backend selesai dan lulus uji fungsional.
+- **Hasil**:
+  1. **Modul Categories (`/api/v1/categories`)**: CRUD lengkap, pemisahan kategori sistem (`is_system = true`, `user_id = NULL`) vs kustom pengguna, proteksi absolut kategori sistem dari modifikasi/penghapusan (`403 FORBIDDEN`), validasi kesesuaian tipe (`income`/`expense`) terhadap transaksi (`400 CATEGORY_TYPE_MISMATCH`), dan mekanisme restorasi otomatis kategori yang pernah di-soft-delete saat dibuat ulang.
+  2. **Modul Budgets (`/api/v1/budgets`)**: Pagu anggaran bulanan maupun rentang bebas, parameter zona waktu terkonfigurasi `BUDGET_TIMEZONE` (`AT TIME ZONE`, default `'Asia/Jakarta'`) dengan interval setengah terbuka `[start_date, end_date + 1 hari)`, validasi pencegahan tumpang tindih anggaran kategori aktif (`409 CONFLICT` & GiST exclusion `chk_budgets_no_overlapping_periods`), agregasi realisasi pengeluaran berbasis BigInt basis points (`percentage_bps` 0-10000+, `percentage` integer), dan soft-delete.
+  3. **Modul Attachments (`/api/v1/attachments`)**: Upload bukti transaksi (max 2MB), validasi ketat signature biner (*magic bytes*) untuk JPEG, PNG, WebP, dan PDF (penolakan spoofing 415), direktori penyimpanan fisik terisolasi tanpa static serving publik, streaming download terotentikasi dengan security headers (`nosniff`, `attachment`, `no-store`), proteksi kuota maksimal 5 lampiran per transaksi via exclusive row-locking (`FOR UPDATE`) dengan bukti ketahanan balapan konkuren (*race condition test*), serta rollback unlink berkas fisik otomatis jika transaksi gagal.
+  4. **Modul Activity Logs (`/api/v1/activity-logs` & `/api/v1/admin/activity-logs`)**: Pencatatan jejak audit sistem otomatis untuk operasi auth, transaksi, transfer, kategori, anggaran, dan lampiran; sanitasi metadata (tanpa password, token, rahasia); serta penegakan keabadian data (*tamper-proof immutable audit trail*) via trigger PostgreSQL `trg_activity_logs_immutable` yang memblokir `UPDATE` dan `DELETE` di tingkat database.
+  5. **Migrasi Skema & Seeder**: Migrasi `012_phase6_categories_budgets_attachments.up.sql` dan `.down.sql`, seeder 20 berkas fisik bukti kuitansi nyata dengan SHA-256 hash valid, dan pembersihan direktori upload otomatis pada saat database reset.
+- **Dokumen yang Dibaca**: [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md), [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md), [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md), [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md), [TESTING_STRATEGY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/TESTING_STRATEGY.md), [DECISIONS_LOG.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DECISIONS_LOG.md).
+- **Test yang Lulus**: 246 tests lulus dari 49 test files Vitest di `apps/api` (+ 1 test di `apps/web` = 247 tests monorepo; mencakup 12 tests categories, 12 tests budgets dengan uji tepi sub-milidetik `23:59:59.9995` & `BUDGET_TIMEZONE`, 3 tests kontrak format uang JSON safe integer `toSafeMoneyNumber`, 10 tests attachments, 1 race test attachments 10 upload serentak 5 ronde berturut-turut, 10 tests activity logs dengan bukti emisi 25/25 `ACTIVITY_ACTIONS` & guard struktural union ketat, 3 tests privasi gagal login tanpa email mentah, 2 tests lifecycle migration & trigger `finally` guard, serta 3 tests proteksi `NODE_ENV` rate limiter), dan `pnpm db:verify` 100% konsisten pada seluruh 8 kriteria integritas basis data.
+- **Kriteria Lanjut**: Seluruh $\ge 6$ entitas CRUD di backend selesai, aman, teruji secara konkuren, dan siap menyangga integrasi Frontend (Phase 7+).
+
 
 ---
 

@@ -1,6 +1,10 @@
 import { Router } from 'express';
-import { env } from '../../config/env.js';
-import { authenticate, validate, createRateLimiter } from '../../middlewares/index.js';
+import {
+  authenticate,
+  validate,
+  createRateLimiter,
+  resolveRateLimitMax,
+} from '../../middlewares/index.js';
 import { asyncHandler } from '../../shared/errors/index.js';
 import {
   createTransactionInputSchema,
@@ -8,11 +12,9 @@ import {
 } from '@wallet-app/shared';
 import { transactionsController } from './transactions.controller.js';
 
-const isTest = env.NODE_ENV === 'test';
-
 export const transactionLimiter = createRateLimiter({
   windowMs: 60 * 1000,
-  max: isTest ? 1000 : 60,
+  max: resolveRateLimitMax(60),
   message: 'Terlalu banyak permintaan transaksi. Silakan coba lagi nanti.',
 });
 

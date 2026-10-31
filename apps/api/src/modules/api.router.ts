@@ -58,10 +58,58 @@ registerApiModule({
   description: 'Income, expense, metadata updates, and atomic void operations',
 });
 
+import { categoriesRouter } from './categories/categories.router.js';
+import { budgetsRouter } from './budgets/budgets.router.js';
+import { attachmentsRouter } from './attachments/attachments.router.js';
+import {
+  activityLogsRouter,
+  adminActivityLogsRouter,
+} from './activity-logs/activity-logs.router.js';
+
 // Phase 5: Register Transfers Module (/api/v1/transfers)
 registerApiModule({
   name: 'transfers',
   prefix: '/transfers',
   router: transfersRouter,
   description: 'Atomic, idempotent, double-entry internal wallet transfers',
+});
+
+// Phase 6: Register Categories Module (/api/v1/categories)
+registerApiModule({
+  name: 'categories',
+  prefix: '/categories',
+  router: categoriesRouter,
+  description: 'Category management with system defaults and soft-delete-aware uniqueness',
+});
+
+// Phase 6: Register Budgets Module (/api/v1/budgets)
+registerApiModule({
+  name: 'budgets',
+  prefix: '/budgets',
+  router: budgetsRouter,
+  description: 'Monthly budget management with aggregated expense realization tracking',
+});
+
+// Phase 6: Register Attachments Module (/api/v1/attachments)
+registerApiModule({
+  name: 'attachments',
+  prefix: '/attachments',
+  router: attachmentsRouter,
+  description: 'Secure file upload and download for transaction receipts',
+});
+
+// Phase 6: Register Activity Logs Module (/api/v1/activity-logs)
+registerApiModule({
+  name: 'activity-logs',
+  prefix: '/activity-logs',
+  router: activityLogsRouter,
+  description: 'Immutable system audit trail and user activity log inquiry',
+});
+
+// Phase 6: Register Admin Activity Logs (/api/v1/admin)
+registerApiModule({
+  name: 'admin',
+  prefix: '/admin',
+  router: adminActivityLogsRouter,
+  description: 'Admin operational oversight endpoints',
 });

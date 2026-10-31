@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import pg from 'pg';
 import { env } from '../../config/env.js';
 import { sanitizeConnectionString } from '../index.js';
@@ -77,6 +80,16 @@ export async function runDatabaseVerification(customConnectionString?: string): 
         name: 'Orphan budgets (invalid category_id)',
         query:
           'SELECT COUNT(*) as count FROM budgets b LEFT JOIN categories c ON b.category_id = c.id WHERE c.id IS NULL',
+      },
+      {
+        name: 'Orphan budgets (invalid user_id)',
+        query:
+          'SELECT COUNT(*) as count FROM budgets b LEFT JOIN users u ON b.user_id = u.id WHERE u.id IS NULL',
+      },
+      {
+        name: 'Orphan attachments (invalid transaction_id)',
+        query:
+          'SELECT COUNT(*) as count FROM attachments a LEFT JOIN transactions t ON a.transaction_id = t.id WHERE t.id IS NULL',
       },
       {
         name: 'Orphan transactions (invalid wallet_id)',
@@ -217,21 +230,77 @@ export async function runDatabaseVerification(customConnectionString?: string): 
     const { rows: sdTransactions } = await client.query<{ count: string }>(
       'SELECT COUNT(*) as count FROM transactions WHERE deleted_at IS NOT NULL'
     );
+    const { rows: sdBudgets } = await client.query<{ count: string }>(
+      'SELECT COUNT(*) as count FROM budgets WHERE deleted_at IS NOT NULL'
+    );
 
     const softDeletedUsersCount = parseInt(sdUsers[0]?.count ?? '0', 10);
     const softDeletedCategoriesCount = parseInt(sdCategories[0]?.count ?? '0', 10);
     const softDeletedTransactionsCount = parseInt(sdTransactions[0]?.count ?? '0', 10);
+    const softDeletedBudgetsCount = parseInt(sdBudgets[0]?.count ?? '0', 10);
 
     const softDeletePassed =
       softDeletedUsersCount > 0 &&
       softDeletedCategoriesCount > 0 &&
-      softDeletedTransactionsCount > 0;
+      softDeletedTransactionsCount > 0 &&
+      softDeletedBudgetsCount > 0;
     checks.push({
       name: 'Soft delete records presence',
       passed: softDeletePassed,
       details: softDeletePassed
-        ? `Soft deleted rows verified (Users: ${softDeletedUsersCount}, Categories: ${softDeletedCategoriesCount}, Transactions: ${softDeletedTransactionsCount})`
-        : `FAILED: Missing soft deleted test rows (Users: ${softDeletedUsersCount}, Categories: ${softDeletedCategoriesCount}, Transactions: ${softDeletedTransactionsCount})`,
+        ? `Soft deleted rows verified (Users: ${softDeletedUsersCount}, Categories: ${softDeletedCategoriesCount}, Transactions: ${softDeletedTransactionsCount}, Budgets: ${softDeletedBudgetsCount})`
+        : `FAILED: Missing soft deleted test rows (Users: ${softDeletedUsersCount}, Categories: ${softDeletedCategoriesCount}, Transactions: ${softDeletedTransactionsCount}, Budgets: ${softDeletedBudgetsCount})`,
+    });
+
+    // 8. Physical File Attachments & Integrity Check (No orphans on disk or in DB)
+    const uploadDir = path.isAbsolute(env.UPLOAD_DIR)
+      ? env.UPLOAD_DIR
+      : path.resolve(process.cwd(), env.UPLOAD_DIR);
+
+    const { rows: attRows } = await client.query<{
+      id: string;
+      file_path: string;
+      file_size: number;
+      file_hash: string;
+    }>('SELECT id, file_path, file_size, file_hash FROM attachments');
+
+    let missingPhysicalFiles = 0;
+    let corruptedHashFiles = 0;
+    const dbFileNames = new Set<string>();
+
+    for (const att of attRows) {
+      dbFileNames.add(att.file_path);
+      const fullPath = path.join(uploadDir, att.file_path);
+      if (!fs.existsSync(fullPath)) {
+        missingPhysicalFiles++;
+      } else {
+        const fileBuf = fs.readFileSync(fullPath);
+        const calcHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
+        if (att.file_hash && calcHash !== att.file_hash) {
+          corruptedHashFiles++;
+        }
+      }
+    }
+
+    let orphanDiskFiles = 0;
+    if (fs.existsSync(uploadDir)) {
+      const diskFiles = fs.readdirSync(uploadDir).filter((f) => f !== '.gitkeep');
+      for (const df of diskFiles) {
+        if (!dbFileNames.has(df)) {
+          orphanDiskFiles++;
+        }
+      }
+    }
+
+    const attachmentIntegrityPassed =
+      missingPhysicalFiles === 0 && corruptedHashFiles === 0 && orphanDiskFiles === 0;
+
+    checks.push({
+      name: 'Physical attachments and disk integrity',
+      passed: attachmentIntegrityPassed,
+      details: attachmentIntegrityPassed
+        ? `All ${attRows.length} attachments exist on disk with valid SHA-256 hashes and 0 orphan files on disk`
+        : `FAILED: Missing files: ${missingPhysicalFiles}, Corrupted hashes: ${corruptedHashFiles}, Orphan files on disk: ${orphanDiskFiles}`,
     });
 
     const allPassed = checks.every((c) => c.passed);
@@ -244,7 +313,6 @@ export async function runDatabaseVerification(customConnectionString?: string): 
 
 // Direct CLI execution
 import { fileURLToPath } from 'url';
-import path from 'path';
 
 const currentFile = fileURLToPath(import.meta.url);
 const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : '';

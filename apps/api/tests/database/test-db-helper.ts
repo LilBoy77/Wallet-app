@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import pg from 'pg';
 import { env } from '../../src/config/env.js';
 import { migrateUp } from '../../src/database/migrator.js';
@@ -97,8 +99,15 @@ export async function closeTestDatabase(): Promise<void> {
 
 /**
  * Cleans all application tables in the test database for test isolation.
+ * Strictly executes only after assertTestDatabaseIsolation() passes and guarantees
+ * trg_activity_logs_immutable & trg_wallet_entries_no_delete are re-enabled inside a finally block.
  */
-export async function cleanTestTables(): Promise<void> {
+export async function cleanTestTables(options?: {
+  testUrl?: string;
+  devUrl?: string;
+  beforeTruncateHook?: (client: pg.PoolClient) => Promise<void>;
+}): Promise<void> {
+  assertTestDatabaseIsolation(options?.testUrl ?? TEST_DB_URL, options?.devUrl ?? env.DATABASE_URL);
   const pool = getTestPool();
   const client = await pool.connect();
   try {
@@ -120,9 +129,34 @@ export async function cleanTestTables(): Promise<void> {
       'users',
     ];
     await client.query('ALTER TABLE wallet_entries DISABLE TRIGGER trg_wallet_entries_no_delete');
-    await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
-    await client.query('ALTER TABLE wallet_entries ENABLE TRIGGER trg_wallet_entries_no_delete');
+    await client.query('ALTER TABLE activity_logs DISABLE TRIGGER trg_activity_logs_immutable');
+    try {
+      if (options?.beforeTruncateHook) {
+        await options.beforeTruncateHook(client);
+      }
+      await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
+    } finally {
+      await client.query('ALTER TABLE activity_logs ENABLE TRIGGER trg_activity_logs_immutable');
+      await client.query('ALTER TABLE wallet_entries ENABLE TRIGGER trg_wallet_entries_no_delete');
+    }
+
+    // Clean test upload directory to prevent orphan test files across test runs
+    const uploadDir = path.isAbsolute(env.UPLOAD_DIR)
+      ? env.UPLOAD_DIR
+      : path.resolve(process.cwd(), env.UPLOAD_DIR);
+    if (fs.existsSync(uploadDir)) {
+      const testFiles = fs.readdirSync(uploadDir).filter((f) => f !== '.gitkeep');
+      for (const file of testFiles) {
+        try {
+          fs.unlinkSync(path.join(uploadDir, file));
+        } catch {
+          // ignore
+        }
+      }
+    }
   } finally {
     client.release();
   }
 }
+
+export const truncateAllTables = cleanTestTables;

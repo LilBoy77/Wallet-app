@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { env } from '../../config/env.js';
 import { migrateDown, migrateUp } from '../migrator.js';
 import { runSeeder, assertEnvironmentSafety } from '../seeder.js';
 
@@ -5,6 +8,23 @@ async function main() {
   try {
     console.log('[DB:RESET] Verifying environment safety before reset...');
     assertEnvironmentSafety();
+
+    console.log('\n[DB:RESET] Cleaning local uploads directory...');
+    const uploadDir = path.isAbsolute(env.UPLOAD_DIR)
+      ? env.UPLOAD_DIR
+      : path.resolve(process.cwd(), env.UPLOAD_DIR);
+    if (fs.existsSync(uploadDir)) {
+      const files = fs.readdirSync(uploadDir);
+      for (const f of files) {
+        if (f !== '.gitkeep') {
+          try {
+            fs.unlinkSync(path.join(uploadDir, f));
+          } catch {
+            /* ignore cleanup error */
+          }
+        }
+      }
+    }
 
     console.log('\n[DB:RESET] Step 1: Rolling back all migrations...');
     await migrateDown({ all: true });

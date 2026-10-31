@@ -1,7 +1,12 @@
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import pg, { type PoolClient } from 'pg';
+import { toSafeMoneyNumber } from '@wallet-app/shared';
 import { env } from '../config/env.js';
 import { sanitizeConnectionString } from './index.js';
+import { ACTIVITY_ACTIONS, type ActivityAction } from '../shared/logging/activity-log.helper.js';
 
 const { Pool } = pg;
 
@@ -43,6 +48,7 @@ export function assertEnvironmentSafety(
  */
 export async function truncateAllTables(client: PoolClient): Promise<void> {
   const tables = [
+    'idempotency_records',
     'password_resets',
     'notifications',
     'activity_logs',
@@ -59,10 +65,15 @@ export async function truncateAllTables(client: PoolClient): Promise<void> {
     'users',
   ];
 
-  // Disable triggers temporarily on wallet_entries to allow clean truncation if needed
+  // Disable triggers temporarily on wallet_entries & activity_logs to allow clean truncation if needed
   await client.query('ALTER TABLE wallet_entries DISABLE TRIGGER trg_wallet_entries_no_delete');
-  await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
-  await client.query('ALTER TABLE wallet_entries ENABLE TRIGGER trg_wallet_entries_no_delete');
+  await client.query('ALTER TABLE activity_logs DISABLE TRIGGER trg_activity_logs_immutable');
+  try {
+    await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
+  } finally {
+    await client.query('ALTER TABLE activity_logs ENABLE TRIGGER trg_activity_logs_immutable');
+    await client.query('ALTER TABLE wallet_entries ENABLE TRIGGER trg_wallet_entries_no_delete');
+  }
 }
 
 /**
@@ -403,14 +414,23 @@ export async function runSeeder(
       const targetUserIndex = ((i - 1) % 10) + 1; // Users 1 to 10
       const userId = userRecords[targetUserIndex]!.id;
       const categoryId = categoryDefs[(i - 1) % 10]!.id; // Expense categories
-      const limitAmount = 500000 * ((i % 5) + 1); // 500k to 2.5m
+      const limitAmount = toSafeMoneyNumber(500000 * ((i % 5) + 1)); // 500k to 2.5m
       const startDate = i <= 10 ? '2026-10-01' : '2026-11-01';
       const endDate = i <= 10 ? '2026-10-31' : '2026-11-30';
 
+      const isSoftDeleted = i === 20; // Budget 20 soft-deleted for soft-delete verification
       await client.query(
-        `INSERT INTO budgets (id, user_id, category_id, limit_amount, start_date, end_date)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [budgetId, userId, categoryId, limitAmount, startDate, endDate]
+        `INSERT INTO budgets (id, user_id, category_id, limit_amount, start_date, end_date, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          budgetId,
+          userId,
+          categoryId,
+          limitAmount,
+          startDate,
+          endDate,
+          isSoftDeleted ? new Date('2026-10-15T10:00:00Z') : null,
+        ]
       );
     }
 
@@ -448,10 +468,10 @@ export async function runSeeder(
     }
 
     // 7. Track Ledger Mutasi & Wallets Balance Helper
-    // Financial ledger state tracker
-    const walletBalances = new Map<string, number>();
+    // Financial ledger state tracker (pure BigInt arithmetic serialized via toSafeMoneyNumber)
+    const walletBalances = new Map<string, bigint>();
     for (const w of walletMap.values()) {
-      walletBalances.set(w.id, 0);
+      walletBalances.set(w.id, 0n);
     }
 
     async function applyLedgerEntry(
@@ -462,19 +482,22 @@ export async function runSeeder(
       referenceId: string | null,
       createdAt: string
     ) {
-      const current = walletBalances.get(walletId) || 0;
-      const nextBalance = entryType === 'credit' ? current + amount : current - amount;
-      if (nextBalance < 0) {
+      const safeAmount = toSafeMoneyNumber(amount);
+      const current = walletBalances.get(walletId) ?? 0n;
+      const amountBig = BigInt(safeAmount);
+      const nextBalance = entryType === 'credit' ? current + amountBig : current - amountBig;
+      if (nextBalance < 0n) {
         throw new Error(
-          `Integrity error: wallet ${walletId} balance would be negative: ${nextBalance}`
+          `Integrity error: wallet ${walletId} balance would be negative: ${nextBalance.toString()}`
         );
       }
       walletBalances.set(walletId, nextBalance);
+      const safeNextBalance = toSafeMoneyNumber(nextBalance);
 
       await client.query(
         `INSERT INTO wallet_entries (wallet_id, reference_id, reference_type, entry_type, amount, balance_after, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [walletId, referenceId, referenceType, entryType, amount, nextBalance, createdAt]
+        [walletId, referenceId, referenceType, entryType, safeAmount, safeNextBalance, createdAt]
       );
     }
 
@@ -603,7 +626,10 @@ export async function runSeeder(
     // 10. Update all wallet balances to match exact ledger final balances
     console.log('[SEEDER] Updating wallets snapshot balances...');
     for (const [walletId, finalBalance] of walletBalances.entries()) {
-      await client.query(`UPDATE wallets SET balance = $1 WHERE id = $2`, [finalBalance, walletId]);
+      await client.query(`UPDATE wallets SET balance = $1 WHERE id = $2`, [
+        toSafeMoneyNumber(finalBalance),
+        walletId,
+      ]);
     }
 
     // 11. Seed Transaction Tags (pivot table N:N, >=20 entries)
@@ -618,27 +644,86 @@ export async function runSeeder(
       );
     }
 
-    // 12. Seed Attachments (20 attachments for transactions)
-    console.log('[SEEDER] Seeding 20 attachments...');
-    const mimes = ['image/jpeg', 'image/png', 'application/pdf'];
+    // 12. Seed Attachments (20 attachments with real valid physical files on disk)
+    console.log('[SEEDER] Seeding 20 attachments with real physical files on disk...');
+    const uploadDir = path.isAbsolute(env.UPLOAD_DIR)
+      ? env.UPLOAD_DIR
+      : path.resolve(process.cwd(), env.UPLOAD_DIR);
+
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    } else {
+      const existingFiles = fs.readdirSync(uploadDir).filter((f) => f !== '.gitkeep');
+      for (const f of existingFiles) {
+        try {
+          fs.unlinkSync(path.join(uploadDir, f));
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // Four minimal valid binaries with correct magic bytes
+    const sampleFiles = [
+      {
+        mime: 'image/jpeg',
+        ext: 'jpg',
+        buffer: Buffer.from(
+          'ffd8ffe000104a46494600010101006000600000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffda0008010100003f007f00ffd9',
+          'hex'
+        ),
+      },
+      {
+        mime: 'image/png',
+        ext: 'png',
+        buffer: Buffer.from(
+          '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2d420000000049454e44ae426082',
+          'hex'
+        ),
+      },
+      {
+        mime: 'image/webp',
+        ext: 'webp',
+        buffer: Buffer.from(
+          '524946461a000000574542505650384c0d0000002f00000010071011118888fe0700',
+          'hex'
+        ),
+      },
+      {
+        mime: 'application/pdf',
+        ext: 'pdf',
+        buffer: Buffer.from(
+          '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 3 3]>>endobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000052 00000 n\n0000000101 00000 n\ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n149\n%%EOF',
+          'utf8'
+        ),
+      },
+    ];
+
     for (let i = 1; i <= 20; i++) {
       const pad = String(i).padStart(2, '0');
       const attachmentId = `80000000-0000-0000-0000-0000000000${pad}`;
       const txId = transactionIds[i - 1];
-      const mime = mimes[(i - 1) % 3];
-      const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/png' ? 'png' : 'pdf';
-      const size = 1024 * (50 + i * 20); // 50KB to 450KB <= 2MB
+      const sample = sampleFiles[(i - 1) % sampleFiles.length]!;
+      const storedFileName = `seed_attachment_${pad}_${attachmentId}`;
+      const physicalPath = path.join(uploadDir, storedFileName);
+
+      // Write physical file to disk
+      await fs.promises.writeFile(physicalPath, sample.buffer);
+
+      const fileHash = crypto.createHash('sha256').update(sample.buffer).digest('hex');
+      const fileSize = sample.buffer.length;
 
       await client.query(
-        `INSERT INTO attachments (id, transaction_id, file_name, file_path, mime_type, file_size)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+        `INSERT INTO attachments (id, transaction_id, file_name, file_path, mime_type, file_size, file_hash)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           attachmentId,
           txId,
-          `bukti_transaksi_${pad}.${ext}`,
-          `/uploads/attachments/proof_${pad}.${ext}`,
-          mime,
-          size,
+          `bukti_transaksi_${pad}.${sample.ext}`,
+          storedFileName,
+          sample.mime,
+          fileSize,
+          fileHash,
         ]
       );
     }
@@ -660,29 +745,94 @@ export async function runSeeder(
       );
     }
 
-    // 14. Seed Activity Logs (20 logs)
+    // 14. Seed Activity Logs (20 logs strictly adhering to ACTIVITY_ACTIONS & safe integer snake_case metadata)
     console.log('[SEEDER] Seeding 20 activity logs...');
-    const actions = [
-      'USER_LOGIN',
-      'USER_LOGOUT',
-      'TRANSFER_INITIATED',
-      'TRANSFER_COMPLETED',
-      'BUDGET_CREATED',
-      'PROFILE_UPDATED',
-      'CATEGORY_CREATED',
-      'PASSWORD_CHANGED',
+    const seedAuditSpecs: ReadonlyArray<{
+      action: ActivityAction;
+      entity: string;
+      buildMetadata: (
+        idx: number,
+        userWalletBalance: bigint,
+        username: string
+      ) => Record<string, unknown>;
+    }> = [
+      {
+        action: ACTIVITY_ACTIONS.USER_LOGIN,
+        entity: 'auth',
+        buildMetadata: (idx) => ({ audit_index: idx }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.USER_LOGOUT,
+        entity: 'auth',
+        buildMetadata: (idx) => ({ audit_index: idx }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.TOKEN_REFRESHED,
+        entity: 'auth',
+        buildMetadata: (idx) => ({ audit_index: idx }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.TRANSFER_SENT,
+        entity: 'transfers',
+        buildMetadata: (_idx, bal) => ({
+          amount: toSafeMoneyNumber(100_000),
+          new_balance: toSafeMoneyNumber(bal),
+        }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.TRANSFER_RECEIVED,
+        entity: 'transfers',
+        buildMetadata: (_idx, bal) => ({
+          amount: toSafeMoneyNumber(100_000),
+          new_balance: toSafeMoneyNumber(bal),
+        }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.TRANSACTION_CREATED,
+        entity: 'transactions',
+        buildMetadata: (_idx, bal) => ({
+          amount: toSafeMoneyNumber(50_000),
+          type: 'expense',
+          new_balance: toSafeMoneyNumber(bal),
+        }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.BUDGET_CREATED,
+        entity: 'budgets',
+        buildMetadata: (idx) => ({
+          limit_amount: toSafeMoneyNumber(500_000 * ((idx % 5) + 1)),
+        }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.WALLET_UPDATE,
+        entity: 'wallets',
+        buildMetadata: (_idx, _bal, username) => ({ name: `Dompet Utama (${username})` }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.CATEGORY_CREATED,
+        entity: 'categories',
+        buildMetadata: (idx) => ({ name: `Kategori Seed ${idx}`, type: 'expense' }),
+      },
+      {
+        action: ACTIVITY_ACTIONS.PASSWORD_CHANGED,
+        entity: 'users',
+        buildMetadata: (idx) => ({ audit_index: idx }),
+      },
     ];
     for (let i = 1; i <= 20; i++) {
       const pad = String(i).padStart(2, '0');
       const logId = `a0000000-0000-0000-0000-0000000000${pad}`;
       const userIndex = (i - 1) % userRecords.length;
       const user = userRecords[userIndex]!;
-      const action = actions[(i - 1) % actions.length]!;
+      const userWallet = walletMap.get(user.id)!;
+      const userWalletBalance = walletBalances.get(userWallet.id) ?? 0n;
+      const spec = seedAuditSpecs[(i - 1) % seedAuditSpecs.length]!;
+      const metadata = spec.buildMetadata(i, userWalletBalance, user.username);
 
       await client.query(
         `INSERT INTO activity_logs (id, user_id, action, entity, metadata, ip_address)
-         VALUES ($1, $2, $3, 'system', $4, '127.0.0.1')`,
-        [logId, user.id, action, JSON.stringify({ auditIndex: i, testUser: user.username })]
+         VALUES ($1, $2, $3, $4, $5, '127.0.0.1')`,
+        [logId, user.id, spec.action, spec.entity, JSON.stringify(metadata)]
       );
     }
 

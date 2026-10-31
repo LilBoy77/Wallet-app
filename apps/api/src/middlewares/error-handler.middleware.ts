@@ -24,6 +24,12 @@ export function mapPostgresError(pgCode: string): PostgresErrorMapping | null {
         code: ERROR_CODES.DUPLICATE_ENTRY,
         message: 'Data yang dimasukkan sudah ada dalam sistem (konflik unik)',
       };
+    case '23P01': // exclusion_violation
+      return {
+        statusCode: 409,
+        code: ERROR_CODES.DUPLICATE_ENTRY,
+        message: 'Periode anggaran tumpang tindih dengan anggaran aktif yang sudah ada',
+      };
     case '23503': // foreign_key_violation
       return {
         statusCode: 422,
@@ -112,6 +118,23 @@ export function globalErrorHandler(
     statusCode = 413;
     errorCode = ERROR_CODES.PAYLOAD_TOO_LARGE;
     message = 'Ukuran payload request melebihi batas maksimal yang diizinkan';
+  }
+  // 4b. Multer Upload Errors
+  else if ((err as { name?: string }).name === 'MulterError') {
+    const multerErr = err as { code: string; message: string };
+    if (multerErr.code === 'LIMIT_FILE_SIZE') {
+      statusCode = 413;
+      errorCode = ERROR_CODES.PAYLOAD_TOO_LARGE;
+      message = 'Ukuran berkas melebihi batas maksimal yang diizinkan (2MB)';
+    } else if (multerErr.code === 'LIMIT_FILE_COUNT') {
+      statusCode = 400;
+      errorCode = ERROR_CODES.BAD_REQUEST;
+      message = 'Jumlah berkas melebihi batas maksimal yang diizinkan';
+    } else {
+      statusCode = 400;
+      errorCode = ERROR_CODES.BAD_REQUEST;
+      message = multerErr.message || 'Kesalahan pada pengunggahan berkas multipart';
+    }
   }
   // 5. PostgreSQL Database Error
   else if (typeof (err as { code?: unknown }).code === 'string') {

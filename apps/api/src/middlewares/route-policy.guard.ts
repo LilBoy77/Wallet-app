@@ -162,6 +162,143 @@ export const ROUTE_POLICY_REGISTRY: RoutePolicy[] = [
     roles: ['user', 'admin'],
     description: 'Mengambil detail transaksi transfer milik pengguna',
   },
+
+  // Module 5: Categories Endpoints (Phase 6)
+  {
+    method: 'GET',
+    path: '/categories',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil daftar kategori transaksi sistem dan milik pengguna',
+  },
+  {
+    method: 'POST',
+    path: '/categories',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Membuat kategori kustom baru milik pengguna',
+  },
+  {
+    method: 'GET',
+    path: '/categories/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil detail kategori berdasarkan ID',
+  },
+  {
+    method: 'PUT',
+    path: '/categories/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Memperbarui nama, ikon, atau warna kategori kustom pengguna',
+  },
+  {
+    method: 'DELETE',
+    path: '/categories/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Menghapus (soft delete) kategori kustom milik pengguna',
+  },
+
+  // Module 6: Budgets Endpoints (Phase 6)
+  {
+    method: 'GET',
+    path: '/budgets',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil daftar pagu anggaran bulanan beserta realisasi belanja agregat',
+  },
+  {
+    method: 'POST',
+    path: '/budgets',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Membuat pagu anggaran baru untuk kategori dan periode bulan tertentu',
+  },
+  {
+    method: 'GET',
+    path: '/budgets/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil detail pagu anggaran beserta realisasi belanja',
+  },
+  {
+    method: 'PUT',
+    path: '/budgets/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Memperbarui nominal pagu limit anggaran',
+  },
+  {
+    method: 'DELETE',
+    path: '/budgets/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Menghapus (soft delete) pagu anggaran pengguna',
+  },
+
+  // Module 7: Attachments Endpoints (Phase 6)
+  {
+    method: 'POST',
+    path: '/attachments',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengunggah berkas kuitansi/bukti transaksi yang aman',
+  },
+  {
+    method: 'GET',
+    path: '/attachments/:id/download',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengunduh berkas fisik bukti transaksi terproteksi',
+  },
+  {
+    method: 'GET',
+    path: '/attachments/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil metadata berkas lampiran transaksi',
+  },
+  {
+    method: 'GET',
+    path: '/attachments/transaction/:transactionId',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil daftar berkas lampiran pada suatu transaksi',
+  },
+  {
+    method: 'DELETE',
+    path: '/attachments/:id',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Menghapus berkas lampiran dan fisik berkas dari server',
+  },
+
+  // Module 8: Activity Logs Endpoints (Phase 6)
+  {
+    method: 'GET',
+    path: '/activity-logs/my',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description: 'Mengambil riwayat log aktivitas audit milik pengguna sendiri',
+  },
+  {
+    method: 'GET',
+    path: '/activity-logs',
+    access: 'authenticated',
+    roles: ['user', 'admin'],
+    description:
+      'Mengambil riwayat log aktivitas audit (milik sendiri bagi user, seluruh log bagi admin)',
+  },
+
+  // Module 9: Admin Endpoints (Phase 6)
+  {
+    method: 'GET',
+    path: '/admin/activity-logs',
+    access: 'authenticated',
+    roles: ['admin'],
+    description: 'Mengambil seluruh riwayat log aktivitas audit sistem per kontrak admin',
+  },
 ];
 
 /**

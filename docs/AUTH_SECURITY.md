@@ -136,7 +136,56 @@ Meskipun cookie refresh token dilindungi oleh `SameSite=Lax`, sistem menerapkan 
 
 ---
 
-## 8. Catatan Batasan & Daftar Keputusan Terbuka `[OPEN]` untuk Phase 12
+## 8. Keamanan Unggah Berkas, Perlindungan Bukti Transaksi & Jejak Audit (Phase 6) `[DECIDED]`
+
+Sistem menerapkan prinsip *Defense in Depth* komprehensif pada penanganan berkas unggahan bukti transaksi dan audit trail sistem:
+
+### A. Validasi Tipe MIME Berbasis Magic Bytes (Anti-Spoofing)
+- **Kelemahan Validasi Standar**: Ekstensi nama file dan header HTTP `Content-Type` yang dikirim peramban dapat dipalsukan secara sepele (misal berkas executable `.exe` diganti nama menjadi `struk.jpg`).
+- **Verifikasi Byte Pembuka (Magic Bytes)**:
+  - Backend memindai byte pembuka buffer berkas di memori menggunakan validator terdedikasi (`magic-bytes.validator.ts`).
+  - Whitelist tipe MIME yang diizinkan terbatas pada:
+    - **JPEG**: `ffd8ffe0`, `ffd8ffe1`, `ffd8ffe2`, `ffd8ffdb`, `ffd8ffee`
+    - **PNG**: `89504e47`
+    - **WebP**: `52494646` (RIFF) + `57454250` (WEBP)
+    - **PDF**: `25504446` (`%PDF`)
+  - Seluruh berkas di luar whitelist atau dengan magic bytes tidak cocok langsung ditolak seketika dengan HTTP 415 `UNSUPPORTED_MEDIA_TYPE`.
+
+### B. Isolasi Berkas Fisik & Direktori Non-Executable
+- Berkas fisik disimpan di direktori terisolasi di luar root web publik (`apps/api/uploads/attachments/`).
+- **Dilarang Keras Static Serving**: Server backend TIDAK PERNAH menyajikan direktori unggahan menggunakan `express.static()`. Hal ini mencegah eksekusi skrip berbahaya secara langsung melalui URL statis peramban.
+
+### C. Sanitasi Nama Berkas (Anti-Path Traversal)
+- Nama berkas asli pengguna disanitasi secara ketat (`filename.sanitizer.ts`) untuk membuang traversal characters (`../`, `..\`), karakter kontrol, dan null bytes (`\0`).
+- Penyimpanan fisik di filesystem selalu menggunakan nama acak unik UUIDv4 (`${randomUUID()}.${ext}`) untuk mencegah tabrakan nama dan *file overwriting*.
+
+### D. Header Keamanan Unduhan Berkas (Authenticated Streaming Download)
+- Berkas hanya dapat diakses melalui endpoint terproteksi (`GET /api/v1/attachments/:id/download`) setelah melalui verifikasi token (`authenticate`) dan verifikasi kepemilikan transaksi (`assertOwnerOrAdmin`).
+- Respon streaming berkas dilengkapi dengan response headers keamanan ketat:
+  - `X-Content-Type-Options: nosniff` (mencegah browser melakukan MIME-type sniffing).
+  - `Content-Disposition: attachment; filename="<sanitized_original_name>"` (memaksa download alih-alih rendering script).
+  - `Cache-Control: private, no-store, max-age=0` (mencegah penyimpanan di shared cache publik).
+
+### E. Penegakan Kuota Konkuren Maksimal 5 Lampiran per Transaksi
+- Setiap transaksi dibatasi maksimal 5 berkas lampiran aktif.
+- Untuk mengeliminasi race-condition konkurensi antar-permintaan upload paralel, pengecekan kuota dieksekusi di dalam database transaction dengan exclusive row lock pada baris transaksi (`SELECT id, wallet_id FROM transactions WHERE id = $1 FOR UPDATE`).
+- Jika kuota sudah mencapai 5, upload berikutnya ditolak dengan HTTP 400 `ATTACHMENT_LIMIT_EXCEEDED`.
+
+### F. Rollback Berkas Fisik Atomik
+- Jika transaksi database mengalami kegagalan pasca penyimpanan berkas fisik ke disk, blok `catch` pada service layer secara otomatis mengeksekusi penghapusan berkas (`fs.unlink`) untuk menjamin tidak ada berkas yatim (*orphan files*) yang tertinggal di filesystem.
+
+### G. Jejak Audit Abadi (Tamper-Proof Audit Trail), Katalog Terpadu & Privasi Login Gagal
+- Seluruh 25 mutasi/kejadian keamanan kritis lintas domain disatukan dalam katalog `ACTIVITY_ACTIONS` (`activity-log.helper.ts`) dengan union type ketat `ActivityAction` pada `recordActivity` dan `authRepository.recordActivityLog` sehingga string literal di luar katalog tertolak saat kompilasi.
+- Immutabilitas dijamin di tingkat database via PostgreSQL trigger `trg_activity_logs_immutable` yang memblokir `UPDATE` dan `DELETE`.
+- Helper `recordActivity` / `sanitizeLogMetadata` melakukan redaksi otomatis pada metadata audit untuk memastikan password, token, secret internal, `file_path`, maupun `email` mentah tidak pernah tersimpan.
+- **Perlindungan Tabel Append-Only & Privasi PII pada Login Gagal**:
+  - Percobaan login dengan email yang tidak terdaftar hanya dicatat ke structured logger Pino (`logger.warn`) dengan hash SHA-256 dari email ternormalisasi (`email_hash`) dan alamat IP — **tidak** menulis baris ke tabel `activity_logs` agar tabel *append-only* tidak dapat dibanjiri tanpa batas dari jalur tanpa autentikasi.
+  - Percobaan login gagal pada akun terdaftar mencatat `USER_LOGIN_FAILED` ke `activity_logs` dengan `user_id`, alamat IP, dan `reason: 'INVALID_CREDENTIALS'` (kata sandi salah) atau `reason: 'ACCOUNT_INACTIVE'` (akun nonaktif / soft-deleted), tanpa pernah menyimpan email mentah.
+
+---
+
+## 9. Catatan Batasan & Daftar Keputusan Terbuka `[OPEN]` untuk Phase 12
+
 
 Berikut adalah daftar isu arsitektural dan operasional yang dicatat sebagai `[OPEN]` untuk diputuskan pada Phase 12 (Hardening, Audit & Production Prep):
 
@@ -159,4 +208,9 @@ Berikut adalah daftar isu arsitektural dan operasional yang dicatat sebagai `[OP
    - *Kondisi Saat Ini*: Diterapkan verifikasi *dummy Argon2id hash* untuk email yang tidak ditemukan agar menyamakan waktu kalkulasi CPU dengan email yang ada.
    - *Isu*: Pada runtime managed seperti Node.js dengan V8 garbage collection, JIT compiler, dan event-loop async concurrency, pencegahan timing attack tidak dapat dijamin 100% konstan secara matematis pada presisi nanodetik.
    - *Pencatatan*: Mitigasi ini ditegaskan sebagai pertahanan *best-effort* praktis, bukan jaminan mutlak tingkat sirkuit/hardware.
+
+5. **[OPEN-SEC-06] Kebijakan Retensi & Arsip Partisi Tabel Append-Only (`activity_logs`)**:
+   - *Kondisi Saat Ini*: Tabel `activity_logs` dilindungi trigger `trg_activity_logs_immutable` yang menolak seluruh `UPDATE` dan `DELETE`, serta dilindungi dari banjir request tanpa autentikasi dengan mengalihkan percobaan email tak terdaftar ke Pino logger.
+   - *Batasan*: Belum ada kebijakan retensi waktu (*log retention policy*) atau pemisahan partisi bulanan (`PARTITION BY RANGE (created_at)`) untuk mengarsipkan dan melepas (*detach*) log berusia sangat tua di produksi tanpa melanggar jaminan immutabilitas baris aktif.
+   - *Opsi Solusi*: Menerapkan *declarative table partitioning* PostgreSQL per bulan/kuartal dengan prosedur `DETACH PARTITION` ke cold storage yang hanya diizinkan bagi peran DBA migrasi terjadwal.
 

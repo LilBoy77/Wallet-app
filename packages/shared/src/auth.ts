@@ -18,9 +18,10 @@ export const usernameSchema = z
 
 export const emailSchema = z
   .string({ required_error: 'Email wajib diisi' })
+  .trim()
   .email('Format email tidak valid')
   .max(255, 'Email maksimal 255 karakter')
-  .transform((val) => val.trim().toLowerCase());
+  .transform((val) => val.toLowerCase());
 
 // 1. Register Schema
 export const registerInputSchema = z.object({

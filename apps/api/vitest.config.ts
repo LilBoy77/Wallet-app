@@ -8,6 +8,7 @@ export default defineConfig({
     fileParallelism: false,
     env: {
       ENABLE_TOPUP_SIMULATION: 'true',
+      UPLOAD_DIR: 'uploads/test-attachments',
     },
   },
 });

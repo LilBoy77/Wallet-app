@@ -56,6 +56,13 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
 | **ADR-048** | 2026-10-24 | Immutability Atribut Finansial Transaksi | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
 | **ADR-049** | 2026-10-24 | Scoped Idempotency Constraint pada Transaksi Transfer (Source Wallet Scoping) | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
 | **ADR-050** | 2026-10-24 | Kebijakan Caching Idempotensi pada Request Gagal, Penegakan Atomisitas, & TTL 24 Jam | `accepted` | [API_CONTRACT.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/API_CONTRACT.md) |
+| **ADR-051** | 2026-10-24 | Simulasi Masuknya Saldo Ekosistem Tertutup, Gating Environment Top-up, dan Pagu Transaksional | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-052** | 2026-10-26 | Model Kategori Transaksi, Proteksi Kategori Sistem & Mekanisme Soft-Delete Reactivation | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-053** | 2026-10-26 | Arsitektur Realisasi Anggaran Bebas Floating-Point Berbasis BigInt Basis Points, Zona Waktu Terkonfigurasi (`BUDGET_TIMEZONE`) & Interval Setengah Terbuka | `accepted` | [DOMAIN_MODEL.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DOMAIN_MODEL.md) |
+| **ADR-054** | 2026-10-26 | Arsitektur Keamanan Unggah Berkas Bukti Transaksi: Validasi Magic Bytes, Sanitasi Nama & Non-Executable Storage | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-055** | 2026-10-26 | Penegakan Kuota Maksimal 5 Lampiran per Transaksi via Exclusive Row-Locking (FOR UPDATE) | `accepted` | [AUTH_SECURITY.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/AUTH_SECURITY.md) |
+| **ADR-056** | 2026-10-26 | Penjaminan Jejak Audit Permanen (Append-Only Audit Trail) via PostgreSQL Immutable Trigger pada activity_logs | `accepted` | [DATABASE_DESIGN.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/DATABASE_DESIGN.md) |
+| **ADR-057** | 2026-10-26 | Strategi Streaming Multer In-Memory Buffer Guard dan Rollback Otomatis Berkas Fisik | `accepted` | [BACKEND_GUIDELINES.md](file:///c:/Users/Ulil%20Arsyad%20Ramadhan/Wallet-app/docs/BACKEND_GUIDELINES.md) |
 
 
 ---
@@ -586,6 +593,104 @@ Dokumen ini mencatat seluruh keputusan arsitektur dan teknis penting (Architectu
      Percobaan transaksi melebihi pagu ditolak dengan respons HTTP 400 `LIMIT_EXCEEDED`.
   3. **Integritas Pembukuan & Jejak Audit**: Seluruh penambahan saldo wajib menghasilkan baris mutasi kredit pada tabel buku besar `wallet_entries` (`reference_type = 'topup_simulation'` atau `'transaction'`) di dalam transaksi atomik terisolasi dan mencatat log audit pada `activity_logs`.
 - **Status**: `accepted`
+
+---
+
+### ADR-052: Model Kategori Transaksi, Proteksi Kategori Sistem & Mekanisme Soft-Delete Reactivation
+- **Konteks**: Aplikasi membutuhkan klasifikasi transaksi yang fleksibel namun aman. Terdapat kategori bawaan sistem (*seed*) dan kategori kustom pengguna. Dibutuhkan aturan tegas terkait kepemilikan, integritas tipe transaksi, dan penanganan bentrok nama pasca soft-delete.
+- **Keputusan**:
+  1. **Proteksi Kategori Sistem**: Kategori sistem (`is_system = true`, `user_id = NULL`) diproteksi secara absolut di service layer. Modifikasi atau penghapusan oleh pengguna reguler maupun admin ditolak dengan HTTP 403 `SYSTEM_CATEGORY_PROTECTED`.
+  2. **Kesesuaian Tipe Mutlak**: Kategori dengan `type = 'income'` hanya dapat ditautkan ke transaksi `INCOME`, dan `type = 'expense'` ke transaksi `EXPENSE`. Pelanggaran ditolak dengan HTTP 400 `CATEGORY_TYPE_MISMATCH`.
+  3. **Reaktivasi Otomatis Soft-Delete**: Jika pengguna membuat kategori baru dengan nama dan tipe yang identik dengan kategori miliknya yang telah di-soft-delete sebelumnya, sistem secara otomatis mereaktivasi kategori lama (`deleted_at = NULL`) dan memperbarui ikon/warna, mencegah error pelanggaran partial unique index.
+- **Bukti Pengujian**: `tests/finance/categories.test.ts` (12 tests).
+- **Status**: `accepted`
+
+---
+
+### ADR-053: Arsitektur Realisasi Anggaran Bebas Floating-Point Berbasis BigInt Basis Points, Zona Waktu Terkonfigurasi (`BUDGET_TIMEZONE`) & Interval Setengah Terbuka
+- **Konteks**: Perhitungan persentase anggaran (*budget realization*) menggunakan floating-point biner rentan menghasilkan representasi desimal tidak konsisten (e.g. `83.33333333333334%`). Selain itu, penggunaan offset `+07` hardcoded dan batas atas tertutup `23:59:59.999` rentan mengabaikan konfigurasi zona waktu serta melewatkan transaksi sub-milidetik (misal `23:59:59.9995`) pada akhir `end_date`.
+- **Keputusan**:
+  1. **Kalkulasi Realisasi BigInt Basis Points**: Agregasi total belanja dan persentase dihitung menggunakan basis points integer: $\text{percentage\_bps} = \lfloor (\text{spent\_amount} \times 10000) / \text{limit\_amount} \rfloor$ dan persentase integer $\text{percentage} = \lfloor (\text{spent\_amount} \times 100) / \text{limit\_amount} \rfloor$.
+  2. **Parameter Zona Waktu `BUDGET_TIMEZONE` (`AT TIME ZONE`) & Interval Setengah Terbuka**: Query agregasi realisasi menerima zona waktu IANA tervalidasi dari `env.BUDGET_TIMEZONE` (default `'Asia/Jakarta'`) sebagai parameter SQL `AT TIME ZONE` dengan interval setengah terbuka `t.transaction_date >= (b.start_date::timestamp AT TIME ZONE $tz) AND t.transaction_date < ((b.end_date + 1)::timestamp AT TIME ZONE $tz)`.
+  3. **Pencegahan Tumpang Tindih**: Constraint GiST exclusion `chk_budgets_no_overlapping_periods` dan query validasi mencegah duplikasi atau overlap anggaran kategori yang sama pada periode aktif.
+- **Bukti Pengujian**: `tests/finance/budgets.test.ts` (12 tests).
+- **Status**: `accepted`
+
+---
+
+### ADR-054: Arsitektur Keamanan Unggah Berkas Bukti Transaksi: Validasi Magic Bytes, Sanitasi Nama & Non-Executable Storage
+- **Konteks**: Pengguna dapat mengunggah bukti kuitansi transaksi. Verifikasi nama berkas atau header `Content-Type` semata rentan dimanipulasi oleh penyerang untuk mengunggah skrip web shell atau berkas berbahaya.
+- **Keputusan**:
+  1. **Verifikasi Magic Bytes Buffer Nyata**: Validator `detectMagicBytes` membaca signature biner berkas di memori untuk memastikan tipe MIME aktual (JPEG, PNG, WebP, PDF). Ekstensi atau header palsu langsung ditolak dengan HTTP 415 `UNSUPPORTED_MEDIA_TYPE`.
+  2. **Penyimpanan Terisolasi Non-Executable**: Berkas disimpan di luar root web publik (`apps/api/uploads/attachments/`). Dilarang keras menggunakan `express.static()` pada direktori unggahan.
+  3. **Sanitasi Nama & UUID Randomization**: Berkas disimpan menggunakan nama unik acak UUIDv4 tanpa ekstensi klien. Karakter traversal path disanitasi dari nama asli berkas.
+  4. **Header Streaming Download Aman**: Pengunduhan berkas mewajibkan autentikasi dan otorisasi kepemilikan, disertai headers `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment`, dan `Cache-Control: private, no-store, max-age=0`.
+  5. **Endpoint Kanonik Tunggal**: Unggah lampiran dilayani melalui satu rute kanonik `POST /api/v1/attachments` (alias `/attachments/upload` dihapus karena belum ada klien frontend dan mencegah duplikasi permukaan rute).
+- **Bukti Pengujian**: `tests/attachments/attachments.test.ts` (10 tests).
+- **Status**: `accepted`
+
+---
+
+### ADR-055: Penegakan Kuota Maksimal 5 Lampiran per Transaksi via Exclusive Row-Locking (FOR UPDATE)
+- **Konteks**: Serangan upload konkuren paralel dapat melewati kuota maksimal lampiran per transaksi (*race condition*) jika verifikasi jumlah dilakukan tanpa penguncian atomik.
+- **Keputusan**:
+  1. Service mengunci baris transaksi di dalam database transaction: `SELECT t.id, t.status, t.wallet_id, w.user_id FROM transactions t JOIN wallets w ON t.wallet_id = w.id WHERE t.id = $1 FOR UPDATE`.
+  2. Menghitung jumlah lampiran aktif. Jika $\ge 5$, upload ditolak dengan HTTP 400 `LIMIT_EXCEEDED`.
+  3. Penambahan baris attachment dan pembersihan berkas fisik saat gagal disinkronkan secara ketat di bawah serialisasi row-lock tersebut.
+- **Bukti Pengujian**: `tests/attachments/attachments-race.test.ts` (10 upload simultan konkuren ke `POST /api/v1/attachments`, rasio oversubscription 2x terhadap kuota 5: tepat 5 berhasil `201` dan 5 ditolak `400`; lulus 5 ronde pengujian berturut-turut).
+- **Status**: `accepted`
+
+---
+
+### ADR-056: Penjaminan Jejak Audit Permanen (Append-Only Audit Trail) via PostgreSQL Immutable Trigger pada activity_logs
+- **Konteks**: Jejak audit (*audit trail*) harus bersifat kebal manipulasi (*tamper-proof*). Admin atau pihak yang memiliki akses ke database tidak boleh dapat mengubah atau menghapus rekaman aktivitas untuk menutupi jejak.
+- **Keputusan**:
+  1. Memasang PostgreSQL trigger `trg_activity_logs_immutable` pada tabel `activity_logs` (`BEFORE UPDATE OR DELETE`) yang memanggil `prevent_activity_logs_mutation()`.
+  2. Setiap perintah modifikasi atau penghapusan ditolak secara absolut di level kernel database.
+  3. Metadata yang dicatat disanitasi secara otomatis oleh helper `recordActivity` / `sanitizeLogMetadata` beserta katalog aksi standar `ACTIVITY_ACTIONS` agar tidak memuat informasi sensitif (password, token autentikasi, hash, secret, atau `file_path` internal).
+- **Bukti Pengujian**: `tests/activity-logs/activity-logs.test.ts` (10 tests).
+- **Status**: `accepted`
+
+---
+
+### ADR-057: Batas Ukuran Berkas Multer 2MB, Analisis Dampak Memori per Request, dan Penanganan Penolakan Dini Klien
+- **Konteks**: Multer memproses pengunggahan berkas secara in-memory buffer (`multer.memoryStorage()`). Jika batas Multer dilonggarkan (misal 10MB), setiap request berukuran besar akan menahan alokasi buffer memori di heap V8 hingga handler selesai membaca stream. Pada beban tinggi (misal 100 upload simultan), batas 10MB berpotensi memakan hingga 1.000 MB (1GB) RAM server, meningkatkan risiko *heap exhaustion* dan *Denial of Service* (DoS). Sebaliknya, menegakkan batas ketat 2MB langsung di konfigurasi Multer menghentikan stream lebih awal, namun dapat memicu reset socket prematur (`ECONNRESET`/`EPIPE`) pada pustaka klien HTTP (seperti Supertest/Node stream) jika klien masih memompa data saat koneksi ditutup dengan HTTP 413.
+- **Keputusan**:
+  1. **Batas Ketat Multer 2MB**: Batas ukuran berkas di Multer dikembalikan dan disinkronkan secara ketat dengan konfigurasi produksi `env.ATTACHMENT_MAX_FILE_SIZE_BYTES` (2 MB = 2.097.152 bytes).
+  2. **Dampak Memori Terkendali per Request**: Memori maksimal per request dibatasi tepat pada 2MB. Di bawah lonjakan konkuren 100 request unggah bersamaan, konsumsi memori puncak dipatok maksimal ~200MB (turun 80% dari batas 10MB), menjamin stabilitas heap Node.js.
+  3. **Pemetaan Kesalahan Terpusat**: Error bawaan Multer `LIMIT_FILE_SIZE` dipetakan secara terpusat oleh `error-handler.middleware.ts` ke HTTP 413 `PAYLOAD_TOO_LARGE`.
+  4. **Penanganan Penolakan Dini pada Klien Test**: Klien pengujian disesuaikan untuk menangani penolakan dini (`ECONNRESET`/`EPIPE`) maupun HTTP `413` secara anggun, dengan tetap memverifikasi tanpa syarat bahwa tidak ada baris `attachments` baru di database dan tidak ada berkas baru di direktori `UPLOAD_DIR`.
+  5. **Proteksi Rate Limiter Ketat**: Rute upload dilindungi oleh `attachmentUploadLimiter` (30 req/menit di produksi) dan rute unduh oleh `attachmentDownloadLimiter` (60 req/menit di produksi).
+  6. **Rollback Berkas Fisik Otomatis**: Jika operasi database gagal atau di-rollback, blok `catch` pada service secara otomatis menghapus berkas fisik yang baru dibuat menggunakan `fs.unlink`.
+- **Bukti Pengujian**: `tests/attachments/attachments.test.ts` (10 tests) dan `tests/attachments/attachments-race.test.ts`.
+- **Status**: `accepted`
+
+---
+
+### ADR-058: Standarisasi Format Uang JSON Safe Integer `number` via Helper Fail-Fast `toSafeMoneyNumber` dan Kunci Metadata Audit `snake_case`
+- **Konteks**: Basis data PostgreSQL menyimpan nilai moneter sebagai `BIGINT` ($2^{63} - 1 \approx 9{,}22 \times 10^{18}$) dan layer bisnis menghitungnya dengan `BigInt` murni, sedangkan `pg` mengembalikan kolom `BIGINT` sebagai `string` dan JSON mengikuti standar IEEE-754 double-precision `number` dengan batas bilangan bulat presisi penuh `Number.MAX_SAFE_INTEGER` ($2^{53} - 1 = 9\,007\,199\,254\,740\,991 \approx \text{Rp } 9{,}007\text{ Kuadriliun}$). Sebelumnya konversi `Number(bigint)` dilakukan tersebar dan pada sebagian metadata `activity_logs` nilai uang tersimpan sebagai string (`limitAmount.toString()`) dengan kunci `camelCase` (`newBalance`, `limitAmount`).
+- **Keputusan**:
+  1. **Satu Aturan JSON Moneter**: Seluruh field uang pada payload JSON (`wallets`, `topup`, `wallet_entries`, `transactions`, `transfers`, `budgets`), cache `idempotency_records.response_body`, `activity_logs.metadata`, seeder database, dan fixture test wajib bertipe `number` bilangan bulat aman (*safe integer*).
+  2. **Helper Tunggal Fail-Fast `toSafeMoneyNumber`**: Semua konversi nilai uang ke JSON wajib melewati `toSafeMoneyNumber` di `packages/shared/src/finance.ts`. Jika nilai melebihi $\pm(2^{53} - 1)$ atau bukan bilangan bulat valid, helper langsung melempar `RangeError`/`TypeError` (dipetakan ke HTTP `500 INTERNAL_SERVER_ERROR`) sehingga *silent precision loss* mustahil terjadi, tanpa merusak ergonomi numerik frontend (grafik Recharts, kalkulator UI, skema Zod).
+  3. **Kunci Metadata Audit Seragam**: Seluruh nilai uang di `activity_logs.metadata` diseragamkan ke `snake_case` (`amount`, `new_balance`, `limit_amount`), termasuk pencatatan eksplisit `TRANSFER_RECEIVED` bagi penerima transfer selain `TRANSFER_SENT` bagi pengirim.
+- **Bukti Pengujian**: `tests/unit/money-arithmetic.test.ts` (7 tests) dan `tests/finance/money-format-contract.test.ts` (3 tests).
+- **Status**: `accepted`
+
+---
+
+### ADR-059: Penyatuan Katalog 25 `ACTIVITY_ACTIONS` Bertipe Union Ketat, Privasi Login Gagal Tanpa Email Mentah, Perlindungan Tabel Append-Only dari Jalur Tanpa Autentikasi, dan Batasan Retensi Log
+- **Konteks**: Sebelumnya modul autentikasi Phase 4 memancarkan 4 string literal di luar katalog (`USER_LOGIN_SUCCESS`, `USER_LOGIN_FAILED`, `TOKEN_REFRESH_SUCCESS`, `TOKEN_REUSE_DETECTED`), parameter `action` pada `recordActivity` masih melonggarkan `ActivityAction | string`, dan kegagalan login menyimpan email mentah serta menulis baris `activity_logs` (`user_id = NULL`) untuk setiap percobaan email tak terdaftar. Karena `activity_logs` dilindungi trigger *append-only* `trg_activity_logs_immutable` (tanpa `DELETE`), jalur publik tanpa autentikasi yang menulis langsung ke tabel tersebut berisiko memicu pertumbuhan ukuran tabel tak terbatas (*unbounded table bloat / disk exhaustion*) serta menyimpan PII email mentah yang diketik penyerang.
+- **Keputusan**:
+  1. **Satu Katalog Kanonik 25 Aksi & Compile-Time Union**: Menyatukan seluruh peristiwa ke `ACTIVITY_ACTIONS` dengan tepat satu nama per peristiwa (`USER_LOGIN`, `USER_LOGIN_FAILED`, `TOKEN_REFRESHED`, `TOKEN_REUSE_DETECTED`, dll. — total 25 aksi). Parameter `action` pada `recordActivity` dan `authRepository.recordActivityLog` dipersempit menjadi union `ActivityAction` murni tanpa `| string`, diperkuat oleh test struktural pemindai kode `apps/api/src/` dan test emisi nyata 25/25 aksi.
+  2. **Tanpa Email Mentah & Pemisahan Email Tak Terdaftar**:
+     - Email tidak terdaftar pada `login` (maupun `forgotPassword`): **tidak ditulis** ke tabel `activity_logs`, melainkan hanya dicatat ke structured logger aplikasi (`logger.warn`) dengan hash SHA-256 dari email ternormalisasi (`email.trim().toLowerCase()`) dan alamat IP.
+     - Kata sandi salah pada akun aktif yang ada: ditulis ke `activity_logs` (`USER_LOGIN_FAILED`) dengan `user_id`, IP, dan `metadata: { reason: 'INVALID_CREDENTIALS' }` tanpa email.
+     - Akun nonaktif (`is_active = false`) atau soft-deleted (`deleted_at IS NOT NULL`) yang ada: ditulis ke `activity_logs` (`USER_LOGIN_FAILED`) dengan `user_id`, IP, dan `metadata: { reason: 'ACCOUNT_INACTIVE' }` tanpa email.
+     - Kunci `email` ditambahkan ke `FORBIDDEN_KEY_PATTERNS` pada `sanitizeLogMetadata` sebagai *defense-in-depth*.
+  3. **Batasan Retensi Log (`Log Retention Limitation`)**: Karena `trg_activity_logs_immutable` memblokir `DELETE`, belum terdapat mekanisme pemangkasan atau partisi arsip otomatis untuk log berusia tua. Batasan retensi ini didokumentasikan secara eksplisit pada `DOMAIN_MODEL.md` dan `AUTH_SECURITY.md` (`[OPEN-SEC-06]`) untuk ditangani dengan *declarative partitioning* pada fase persiapan produksi.
+- **Bukti Pengujian**: `tests/auth/login-audit-privacy.test.ts` (3 tests) dan `tests/activity-logs/activity-logs.test.ts` (10 tests).
+- **Status**: `accepted`
+
 
 
 

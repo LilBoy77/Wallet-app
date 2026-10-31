@@ -70,6 +70,7 @@ erDiagram
         date end_date
         timestamp created_at
         timestamp updated_at
+        timestamp deleted_at
     }
 
     transactions {
@@ -112,6 +113,7 @@ erDiagram
         uuid transaction_id FK
         varchar file_name
         varchar file_path
+        varchar file_hash
         varchar mime_type
         integer file_size
         timestamp created_at
@@ -220,7 +222,9 @@ erDiagram
 - `end_date`: `DATE NOT NULL`
 - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
 - `updated_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+- `deleted_at`: `TIMESTAMPTZ NULL` (Soft Delete)
 - *Constraint*: `CHECK (end_date >= start_date)`
+- *Partial Unique Index*: `UNIQUE (user_id, category_id, start_date, end_date) WHERE deleted_at IS NULL` (via index `idx_budgets_user_category_period_active`)
 
 ### 5. `transactions` (Tabel Catatan Transaksi Keuangan)
 - `id`: `UUID PRIMARY KEY DEFAULT gen_random_uuid()`
@@ -260,9 +264,11 @@ erDiagram
 - `transaction_id`: `UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE`
 - `file_name`: `VARCHAR(255) NOT NULL`
 - `file_path`: `VARCHAR(500) NOT NULL`
-- `mime_type`: `VARCHAR(100) NOT NULL`
+- `file_hash`: `VARCHAR(64) NOT NULL` (SHA-256 integrity hash)
+- `mime_type`: `VARCHAR(100) NOT NULL CHECK (mime_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf'))`
 - `file_size`: `INTEGER NOT NULL CHECK (file_size > 0 AND file_size <= 2097152)`
 - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+
 
 ### 9. `tags` & `transaction_tags` (Tabel Taksonomi N:N)
 - `tags`:
@@ -283,10 +289,11 @@ erDiagram
 ---
 
 ## 4. Kebijakan Soft Delete $\ge 2$ Tabel `[DECIDED]`
-Soft delete (`deleted_at TIMESTAMP NULL`) diterapkan pada 3 entitas kunci:
+Soft delete (`deleted_at TIMESTAMP NULL`) diterapkan pada 4 entitas kunci:
 1. **`users`**: Menghindari penghapusan akun yang dapat merusak audit trail transfer saldo antar-pengguna. Saat user dinonaktifkan/dihapus, relasi transfer historis tetap valid.
 2. **`categories`**: Menghapus kategori tidak boleh menyebabkan error foreign key constraint pada transaksi-transaksi lampau.
 3. **`transactions`**: Pengguna dapat membatalkan/menghapus catatan transaksi dari tampilan dashboard pribadi, namun data tetap tersimpan untuk keperluan audit finansial dan penyesuaian ledger jika diperlukan.
+4. **`budgets`**: Menghapus pagu anggaran tidak menghilangkan riwayat alokasi anggaran masa lalu untuk analisis pelaporan dan audit finansial.
 
 ---
 
@@ -296,10 +303,11 @@ Soft delete (`deleted_at TIMESTAMP NULL`) diterapkan pada 3 entitas kunci:
 - `CREATE INDEX idx_wallet_entries_wallet ON wallet_entries(wallet_id, created_at DESC);`
 - `CREATE INDEX idx_transfers_source_target ON transfers(source_wallet_id, target_wallet_id, created_at DESC);`
 - `CREATE INDEX idx_budgets_user_period ON budgets(user_id, start_date, end_date);`
+- `CREATE UNIQUE INDEX idx_budgets_user_category_period_active ON budgets(user_id, category_id, start_date, end_date) WHERE deleted_at IS NULL;` (Migration 012: Parsial unik anggaran aktif)
+- `CREATE INDEX idx_attachments_transaction_id ON attachments(transaction_id);` (Migration 012: Optimasi lookup lampiran per transaksi)
 - `CREATE INDEX idx_activity_logs_user_created ON activity_logs(user_id, created_at DESC);`
 - `CREATE INDEX idx_notifications_user_unread ON notifications(user_id, is_read) WHERE is_read = false;`
 - `CREATE INDEX idx_refresh_tokens_family_user_active ON refresh_tokens (family_id, user_id) WHERE is_revoked = false;` (Migration 010: Session Binding Index untuk verifikasi instan status sesi aktif di middleware `authenticate`)
-
 
 ---
 
@@ -314,6 +322,8 @@ Untuk memenuhi persyaratan pengujian dan demonstrasi tugas:
 - `transfers`: Minimal 20 transaksi transfer internal antar-pengguna dengan status sukses.
 - `tags`: Minimal 20 tag kustom (misal: `#makanan`, `#gajian`, `#tagihan`, `#hobi`, `#kopi`).
 - `transaction_tags`: Minimal 20 pemetaan pivot transaksi ke tag.
+- `attachments`: Minimal 20 lampiran bukti fisik riil pada direktori `apps/api/uploads/attachments/` dengan SHA-256 hash valid.
+- `activity_logs`: Minimal 20 entri audit trail riil mencakup operasi auth, transfer, transaksi, dan kategori.
 
 ---
 
@@ -361,4 +371,25 @@ Migrasi `011_phase5_core_financial_schema` memperkuat integritas data dan idempo
    - `created_at`: `TIMESTAMPTZ NOT NULL DEFAULT NOW()`
    - Constraint: `CONSTRAINT uq_idempotency_user_key UNIQUE (user_id, idempotency_key)`
    - Indeks: `CREATE INDEX idx_idempotency_created_at ON idempotency_records(created_at);`
+
+---
+
+## 9. Penyempurnaan Skema Phase 6 (`012_phase6_categories_budgets_attachments`) `[ACCEPTED]`
+
+Migrasi `012_phase6_categories_budgets_attachments` menyempurnakan integritas modul pendukung finansial:
+1. **Dukungan Soft-Delete pada `budgets`**:
+   - Menambahkan kolom `deleted_at TIMESTAMPTZ NULL`.
+   - Menghapus constraint statis lama `uq_budgets_user_category_period` dan menggantinya dengan Partial Unique Index:
+     `CREATE UNIQUE INDEX idx_budgets_user_category_period_active ON budgets (user_id, category_id, start_date, end_date) WHERE deleted_at IS NULL;`
+   - Memungkinkan pengguna membuat anggaran baru untuk periode yang sama jika anggaran sebelumnya telah di-soft-delete, sekaligus mempertahankan arsip historis anggaran.
+2. **Integritas Berkas Fisik & Ekstensi Format Lampiran (`attachments`)**:
+   - Menambahkan kolom `file_hash VARCHAR(64) NOT NULL` (SHA-256 heksadesimal) untuk verifikasi integritas data disk dan deteksi berkas fisik identik.
+   - Memperluas check constraint format berkas gambar modern:
+     `CONSTRAINT chk_attachments_mime_type CHECK (mime_type IN ('image/jpeg', 'image/png', 'image/webp', 'application/pdf'))`.
+   - Menambahkan indeks lookup relasi transaksi:
+     `CREATE INDEX idx_attachments_transaction_id ON attachments (transaction_id);`.
+3. **Database Trigger Immutabilitas Jejak Audit (`activity_logs`)**:
+   - Menerapkan fungsi PostgreSQL `prevent_activity_logs_mutation()` dan trigger `trg_activity_logs_immutable` (`BEFORE UPDATE OR DELETE ON activity_logs`).
+   - Menjamin bahwa seluruh rekaman log aktivitas bersifat *append-only* dan kebal modifikasi/penghapusan bahkan oleh superadmin langsung di console SQL.
+
 

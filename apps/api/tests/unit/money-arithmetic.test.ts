@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   safeAddMoney,
   safeSubtractMoney,
+  toSafeMoneyNumber,
   formatIdr,
   canonicalStringify,
   moneyAmountSchema,
@@ -81,5 +82,29 @@ describe('Financial Domain Logic - Unit Tests (Money Arithmetic & Precision)', (
 
     // Exceeding 1 Trillion max
     expect(moneyAmountSchema.safeParse(1_000_000_000_001).success).toBe(false);
+  });
+
+  it('toSafeMoneyNumber converts valid bigint/number/string to safe integer number and fails fast on overflow or invalid input', () => {
+    expect(toSafeMoneyNumber(0n)).toBe(0);
+    expect(Object.is(toSafeMoneyNumber(0n), -0)).toBe(false);
+    expect(toSafeMoneyNumber(1_500_000n)).toBe(1_500_000);
+    expect(toSafeMoneyNumber(BigInt(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
+    expect(toSafeMoneyNumber('2500000')).toBe(2_500_000);
+    expect(toSafeMoneyNumber('-50000')).toBe(-50_000);
+    expect(toSafeMoneyNumber(750_000)).toBe(750_000);
+
+    // Fail-fast on exceeding 2^53 - 1
+    expect(() => toSafeMoneyNumber(BigInt(Number.MAX_SAFE_INTEGER) + 1n)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber(BigInt(Number.MIN_SAFE_INTEGER) - 1n)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber('9007199254740992')).toThrow(RangeError);
+
+    // Fail-fast on float, -0, NaN, Infinity, or malformed strings
+    expect(() => toSafeMoneyNumber(100.25)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber(-0)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber(NaN)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber(Infinity)).toThrow(RangeError);
+    expect(() => toSafeMoneyNumber('')).toThrow(TypeError);
+    expect(() => toSafeMoneyNumber('150000.00')).toThrow(TypeError);
+    expect(() => toSafeMoneyNumber('1e5')).toThrow(TypeError);
   });
 });

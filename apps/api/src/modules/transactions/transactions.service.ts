@@ -3,13 +3,14 @@ import type {
   UpdateTransactionMetadataInput,
   TransactionResponse,
 } from '@wallet-app/shared';
-import { safeAddMoney, safeSubtractMoney } from '@wallet-app/shared';
+import { safeAddMoney, safeSubtractMoney, toSafeMoneyNumber } from '@wallet-app/shared';
 import { pool, withTransaction } from '../../database/index.js';
 import { env } from '../../config/env.js';
 import { transactionsRepository, type TransactionRecord } from './transactions.repository.js';
 import { walletsRepository } from '../wallets/wallets.repository.js';
 import { NotFoundError, BadRequestError, ERROR_CODES } from '../../shared/errors/index.js';
 import { createPaginationMeta } from '../../shared/utils/query-parser.js';
+import { recordActivity, ACTIVITY_ACTIONS } from '../../shared/logging/activity-log.helper.js';
 
 export function toTransactionResponse(
   record: TransactionRecord,
@@ -20,7 +21,7 @@ export function toTransactionResponse(
     wallet_id: record.wallet_id,
     category_id: record.category_id,
     type: record.type,
-    amount: Number(record.amount),
+    amount: toSafeMoneyNumber(record.amount),
     status: record.status,
     transaction_date: record.transaction_date.toISOString(),
     description: record.description,
@@ -70,6 +71,11 @@ export class TransactionsService {
       );
       if (!category) {
         throw new NotFoundError('Kategori tidak ditemukan atau telah dihapus');
+      }
+      if (category.type !== input.type) {
+        throw new BadRequestError(
+          `Tipe kategori '${category.type}' tidak cocok dengan tipe transaksi '${input.type}'`
+        );
       }
 
       // 4. Calculate balance under lock with safe BigInt arithmetic
@@ -129,22 +135,18 @@ export class TransactionsService {
       });
 
       // 9. Activity log
-      await client.query(
-        `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          userId,
-          input.type === 'income' ? 'TRANSACTION_INCOME_CREATED' : 'TRANSACTION_EXPENSE_CREATED',
-          'transactions',
-          txRecord.id,
-          JSON.stringify({
-            amount: input.amount,
-            type: input.type,
-            newBalance: newBalance.toString(),
-          }),
-          ip,
-        ]
-      );
+      await recordActivity(client, {
+        userId,
+        action: ACTIVITY_ACTIONS.TRANSACTION_CREATED,
+        entity: 'transactions',
+        entityId: txRecord.id,
+        metadata: {
+          amount: toSafeMoneyNumber(txAmount),
+          type: input.type,
+          new_balance: toSafeMoneyNumber(newBalance),
+        },
+        ipAddress: ip,
+      });
 
       const tags = input.tag_ids
         ? await transactionsRepository.getTagsForTransaction(client, txRecord.id)
@@ -229,22 +231,18 @@ export class TransactionsService {
       });
 
       // 8. Activity log
-      await client.query(
-        `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          userId,
-          'TRANSACTION_VOIDED',
-          'transactions',
-          tx.id,
-          JSON.stringify({
-            amount: tx.amount,
-            originalType: tx.type,
-            newBalance: newBalance.toString(),
-          }),
-          ip,
-        ]
-      );
+      await recordActivity(client, {
+        userId,
+        action: ACTIVITY_ACTIONS.TRANSACTION_VOIDED,
+        entity: 'transactions',
+        entityId: tx.id,
+        metadata: {
+          amount: toSafeMoneyNumber(txAmount),
+          original_type: tx.type,
+          new_balance: toSafeMoneyNumber(newBalance),
+        },
+        ipAddress: ip,
+      });
 
       const tags = await transactionsRepository.getTagsForTransaction(client, tx.id);
 
@@ -283,6 +281,11 @@ export class TransactionsService {
       if (!category) {
         throw new NotFoundError('Kategori tidak ditemukan atau telah dihapus');
       }
+      if (category.type !== tx.type) {
+        throw new BadRequestError(
+          `Tipe kategori '${category.type}' tidak cocok dengan tipe transaksi '${tx.type}'`
+        );
+      }
     }
 
     const updated = await transactionsRepository.updateTransactionMetadata(pool, transactionId, {
@@ -297,18 +300,14 @@ export class TransactionsService {
       await transactionsRepository.syncTransactionTags(pool, transactionId, input.tag_ids);
     }
 
-    await pool.query(
-      `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        userId,
-        'TRANSACTION_METADATA_UPDATED',
-        'transactions',
-        transactionId,
-        JSON.stringify(input),
-        ip,
-      ]
-    );
+    await recordActivity(pool, {
+      userId,
+      action: ACTIVITY_ACTIONS.TRANSACTION_METADATA_UPDATED,
+      entity: 'transactions',
+      entityId: transactionId,
+      metadata: input as Record<string, unknown>,
+      ipAddress: ip,
+    });
 
     const tags = await transactionsRepository.getTagsForTransaction(pool, transactionId);
     return toTransactionResponse(

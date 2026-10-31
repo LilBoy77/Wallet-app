@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { WalletResponse, WalletEntryResponse, UpdateWalletInput } from '@wallet-app/shared';
-import { safeAddMoney } from '@wallet-app/shared';
+import { safeAddMoney, toSafeMoneyNumber } from '@wallet-app/shared';
 import { pool, withTransaction } from '../../database/index.js';
 import { env } from '../../config/env.js';
 import {
@@ -8,8 +8,14 @@ import {
   type WalletRecord,
   type WalletEntryRecord,
 } from './wallets.repository.js';
-import { NotFoundError, BadRequestError, ForbiddenError, ERROR_CODES } from '../../shared/errors/index.js';
+import {
+  NotFoundError,
+  BadRequestError,
+  ForbiddenError,
+  ERROR_CODES,
+} from '../../shared/errors/index.js';
 import { createPaginationMeta } from '../../shared/utils/query-parser.js';
+import { recordActivity, ACTIVITY_ACTIONS } from '../../shared/logging/activity-log.helper.js';
 
 export function toWalletResponse(record: WalletRecord): WalletResponse {
   return {
@@ -17,7 +23,7 @@ export function toWalletResponse(record: WalletRecord): WalletResponse {
     user_id: record.user_id,
     wallet_number: record.wallet_number,
     currency: record.currency,
-    balance: Number(record.balance),
+    balance: toSafeMoneyNumber(record.balance),
     name: record.name,
     is_active: record.is_active,
     created_at: record.created_at.toISOString(),
@@ -32,8 +38,8 @@ export function toWalletEntryResponse(record: WalletEntryRecord): WalletEntryRes
     reference_id: record.reference_id,
     reference_type: record.reference_type,
     entry_type: record.entry_type,
-    amount: Number(record.amount),
-    balance_after: Number(record.balance_after),
+    amount: toSafeMoneyNumber(record.amount),
+    balance_after: toSafeMoneyNumber(record.balance_after),
     created_at: record.created_at.toISOString(),
   };
 }
@@ -127,18 +133,17 @@ export class WalletsService {
       });
 
       // 5. Audit log
-      await client.query(
-        `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          userId,
-          'WALLET_TOPUP_SIMULATED',
-          'wallets',
-          lockedWallet.id,
-          JSON.stringify({ amount, newBalance: newBalance.toString() }),
-          ip,
-        ]
-      );
+      await recordActivity(client, {
+        userId,
+        action: ACTIVITY_ACTIONS.TOPUP_SIMULATION,
+        entity: 'wallets',
+        entityId: lockedWallet.id,
+        metadata: {
+          amount: toSafeMoneyNumber(topupAmount),
+          new_balance: toSafeMoneyNumber(newBalance),
+        },
+        ipAddress: ip,
+      });
 
       return {
         ...lockedWallet,
@@ -164,11 +169,14 @@ export class WalletsService {
       throw new NotFoundError('Gagal memperbarui metadata dompet');
     }
 
-    await pool.query(
-      `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, 'WALLET_METADATA_UPDATED', 'wallets', wallet.id, JSON.stringify(input), ip]
-    );
+    await recordActivity(pool, {
+      userId,
+      action: ACTIVITY_ACTIONS.WALLET_UPDATE,
+      entity: 'wallets',
+      entityId: wallet.id,
+      metadata: input as Record<string, unknown>,
+      ipAddress: ip,
+    });
 
     return toWalletResponse(updated);
   }

@@ -172,7 +172,7 @@ describe('Financial Module - Wallets & Ledger Entries (/api/v1/wallets)', () => 
 
     const originalFlag = env.ENABLE_TOPUP_SIMULATION;
     try {
-      (env as any).ENABLE_TOPUP_SIMULATION = false;
+      env.ENABLE_TOPUP_SIMULATION = false;
 
       const res = await request(app)
         .post('/api/v1/wallets/my/topup')
@@ -184,7 +184,7 @@ describe('Financial Module - Wallets & Ledger Entries (/api/v1/wallets)', () => 
       expect(res.body.error.code).toBe('TOPUP_SIMULATION_DISABLED');
       expect(res.body.error.message).toContain('Simulasi topup dinonaktifkan');
     } finally {
-      (env as any).ENABLE_TOPUP_SIMULATION = originalFlag;
+      env.ENABLE_TOPUP_SIMULATION = originalFlag;
     }
   });
 
@@ -202,4 +202,3 @@ describe('Financial Module - Wallets & Ledger Entries (/api/v1/wallets)', () => 
     expect(res.body.error.message).toContain('melebihi batas maksimal per transaksi');
   });
 });
-

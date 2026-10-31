@@ -1,5 +1,9 @@
 import type { Pool, PoolClient } from 'pg';
 import type { UserRole } from '@wallet-app/shared';
+import {
+  recordActivity,
+  type RecordActivityParams,
+} from '../../shared/logging/activity-log.helper.js';
 
 export interface UserRecord {
   id: string;
@@ -50,6 +54,21 @@ export class AuthRepository {
       `SELECT id, username, email, password_hash, full_name, role, is_active, is_verified, created_at, updated_at, deleted_at
        FROM users
        WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
+      [email]
+    );
+    return res.rows[0] || null;
+  }
+
+  async findUserByEmailIncludingDeleted(
+    client: Pool | PoolClient,
+    email: string
+  ): Promise<UserRecord | null> {
+    const res = await client.query<UserRecord>(
+      `SELECT id, username, email, password_hash, full_name, role, is_active, is_verified, created_at, updated_at, deleted_at
+       FROM users
+       WHERE LOWER(email) = LOWER($1)
+       ORDER BY (deleted_at IS NULL) DESC, created_at DESC
+       LIMIT 1`,
       [email]
     );
     return res.rows[0] || null;
@@ -185,29 +204,8 @@ export class AuthRepository {
     );
   }
 
-  async recordActivityLog(
-    client: Pool | PoolClient,
-    data: {
-      userId: string | null;
-      action: string;
-      entity: string;
-      entityId?: string | null;
-      metadata?: Record<string, unknown>;
-      ipAddress?: string | null;
-    }
-  ): Promise<void> {
-    await client.query(
-      `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        data.userId,
-        data.action,
-        data.entity,
-        data.entityId || null,
-        JSON.stringify(data.metadata || {}),
-        data.ipAddress || null,
-      ]
-    );
+  async recordActivityLog(client: Pool | PoolClient, data: RecordActivityParams): Promise<void> {
+    await recordActivity(client, data);
   }
 }
 

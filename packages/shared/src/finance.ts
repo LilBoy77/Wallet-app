@@ -44,11 +44,57 @@ export function safeSubtractMoney(
   return bigBalance - bigDeduction;
 }
 
+export const MAX_SAFE_MONEY_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+export const MIN_SAFE_MONEY_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+
+/**
+ * Converts a monetary amount (bigint, integer number, or integer string from PostgreSQL BIGINT::text)
+ * into a guaranteed IEEE-754 safe integer JSON `number`.
+ * Fails fast with RangeError / TypeError if the input is fractional, non-numeric, -0, or outside
+ * `[-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]`.
+ */
+export function toSafeMoneyNumber(value: bigint | number | string): number {
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || Object.is(value, -0)) {
+      throw new RangeError(
+        `Nilai moneter numerik berada di luar batas Safe Integer JSON: ${String(value)}`
+      );
+    }
+    return value === 0 ? 0 : value;
+  }
+
+  if (typeof value === 'bigint') {
+    if (value > MAX_SAFE_MONEY_BIGINT || value < MIN_SAFE_MONEY_BIGINT) {
+      throw new RangeError(
+        `Nilai moneter BigInt melampaui batas IEEE-754 Safe Integer (2^53 - 1): ${value.toString()}`
+      );
+    }
+    const num = Number(value);
+    return num === 0 ? 0 : num;
+  }
+
+  if (typeof value === 'string') {
+    if (!/^-?\d+$/.test(value)) {
+      throw new TypeError(`Representasi string nilai moneter tidak valid: '${value}'`);
+    }
+    const big = BigInt(value);
+    if (big > MAX_SAFE_MONEY_BIGINT || big < MIN_SAFE_MONEY_BIGINT) {
+      throw new RangeError(
+        `Nilai moneter string melampaui batas IEEE-754 Safe Integer (2^53 - 1): ${value}`
+      );
+    }
+    const num = Number(big);
+    return num === 0 ? 0 : num;
+  }
+
+  throw new TypeError(`Tipe nilai moneter tidak didukung: ${typeof value}`);
+}
+
 /**
  * Formats integer minor units into standard Indonesian Rupiah display format.
  */
 export function formatIdr(amount: bigint | number | string): string {
-  const num = typeof amount === 'bigint' ? Number(amount) : Number(amount);
+  const num = toSafeMoneyNumber(amount);
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',

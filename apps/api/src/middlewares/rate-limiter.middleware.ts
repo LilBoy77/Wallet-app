@@ -12,6 +12,22 @@ export interface RateLimiterFactoryOptions {
 }
 
 /**
+ * Resolves the effective rate-limit max threshold.
+ * Relaxation (`testMax`) is strictly permitted ONLY when `nodeEnv === 'test'`
+ * and structurally prohibited in `'production'` (and `'development'`).
+ */
+export function resolveRateLimitMax(
+  strictMax: number,
+  nodeEnv: string = env.NODE_ENV,
+  testMax: number = 1000
+): number {
+  if (nodeEnv === 'production') {
+    return strictMax;
+  }
+  return nodeEnv === 'test' ? testMax : strictMax;
+}
+
+/**
  * Factory for creating configured rate limiters.
  * Returns standard 429 envelope format matching API_CONTRACT.md with Retry-After header.
  */

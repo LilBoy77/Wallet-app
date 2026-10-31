@@ -90,6 +90,26 @@ export const envSchema = z
       .default(false),
     TOPUP_MAX_AMOUNT_PER_TX: z.coerce.number().int().positive().default(50_000_000), // Max Rp 50.000.000 per topup
     INCOME_MAX_AMOUNT_PER_TX: z.coerce.number().int().positive().default(50_000_000), // Max Rp 50.000.000 per income
+
+    // Phase 6: Categories, Budgets, Attachments Configuration
+    UPLOAD_DIR: z.string().default('uploads/attachments'),
+    ATTACHMENT_MAX_FILE_SIZE_BYTES: z.coerce.number().int().positive().default(2_097_152), // Max 2MB
+    ATTACHMENT_MAX_FILES_PER_TX: z.coerce.number().int().positive().default(5), // Max 5 attachments per transaction
+    BUDGET_TIMEZONE: z
+      .string()
+      .min(1, 'BUDGET_TIMEZONE is required')
+      .refine(
+        (tz) => {
+          try {
+            Intl.DateTimeFormat(undefined, { timeZone: tz });
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        { message: 'BUDGET_TIMEZONE must be a valid IANA timezone identifier' }
+      )
+      .default('Asia/Jakarta'),
   })
   .superRefine((data, ctx) => {
     if (data.NODE_ENV === 'production') {
@@ -217,6 +237,10 @@ try {
       ENABLE_TOPUP_SIMULATION: true,
       TOPUP_MAX_AMOUNT_PER_TX: 50_000_000,
       INCOME_MAX_AMOUNT_PER_TX: 50_000_000,
+      UPLOAD_DIR: 'uploads/attachments',
+      ATTACHMENT_MAX_FILE_SIZE_BYTES: 2_097_152,
+      ATTACHMENT_MAX_FILES_PER_TX: 5,
+      BUDGET_TIMEZONE: 'Asia/Jakarta',
     };
   } else {
     throw err;

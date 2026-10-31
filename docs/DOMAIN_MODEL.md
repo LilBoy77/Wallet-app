@@ -13,7 +13,7 @@ Dokumen ini mendefinisikan entitas domain inti, relasi konseptual, state machine
 6. **Category**: Klasifikasi jenis transaksi (misalnya Makanan & Minuman, Transportasi, Gaji, Investasi). Dapat berupa kategori default sistem (global) atau kategori kustom pengguna.
 7. **Budget**: Batasan pagu pengeluaran terencana per kategori dalam suatu periode (bulanan) yang memantau akumulasi pengeluaran.
 8. **Attachment**: Metadata berkas bukti transaksi (struk/faktur) yang diunggah pengguna.
-9. **ActivityLog**: Jejak audit sistem yang mencatat operasi kritis (login, perubahan profil, transfer saldo, perubahan status user).
+9. **ActivityLog**: Jejak audit sistem *append-only* yang mencatat operasi kritis terstandarisasi sesuai katalog `ACTIVITY_ACTIONS` (autentikasi, mutasi/metadata dompet, transaksi, transfer saldo, kategori, anggaran, dan lampiran).
 10. **Notification**: Pemberitahuan aplikasi kepada pengguna (misal: transfer masuk, peringatan pagu anggaran terlampaui $\ge 80\%$).
 11. **Tag & TransactionTag**: Label taksonomi fleksibel yang dapat dilekatkan pada banyak transaksi (relasi N:N).
 
@@ -142,3 +142,68 @@ stateDiagram-v2
 - Setiap entitas finansial (`wallets`, `transactions`, `budgets`, `categories` kustom) terikat secara kaku pada `user_id`.
 - Regular user hanya dapat membaca, mengubah, atau menghapus data miliknya sendiri (`WHERE user_id = :currentUser.id`).
 - Admin memiliki hak inspeksi global untuk pemantauan sistem, namun tidak dapat memanipulasi mutasi saldo pengguna tanpa melalui alur resmi yang tercatat di audit trail `activity_logs`.
+
+---
+
+## 5. Model Domain & Integritas Phase 6 (Categories, Budgets, Attachments, Audit Logs) `[DECIDED]`
+
+### A. Kategori Transaksi & Proteksi Kategori Sistem
+1. **Pemisahan Kategori Sistem vs Kustom**:
+   - Kategori sistem (`is_system = true`, `user_id = NULL`) bersifat global dan dapat dibaca oleh seluruh pengguna.
+   - Kategori kustom (`is_system = false`, `user_id = <UUID>`) dimiliki eksklusif oleh pembuatnya.
+   - Kategori sistem diproteksi secara absolut: pengguna biasa maupun admin dilarang memodifikasi atau menghapusnya melalui API (`403 FORBIDDEN` / `SYSTEM_CATEGORY_PROTECTED`).
+2. **Kesesuaian Tipe Transaksi (`type`)**:
+   - Kategori berstatus `income` hanya dapat ditautkan ke transaksi bertipe `INCOME`.
+   - Kategori berstatus `expense` hanya dapat ditautkan ke transaksi bertipe `EXPENSE`.
+   - Transaksi yang mencoba menggunakan kategori yang tidak sesuai tipenya ditolak dengan HTTP 400 `CATEGORY_TYPE_MISMATCH`.
+3. **Mekanisme Reaktivasi Soft-Delete (Name Reuse)**:
+   - Jika pengguna membuat kategori kustom baru dengan nama dan tipe yang identik dengan kategori miliknya yang sebelumnya telah di-soft-delete, sistem secara otomatis mereaktivasi kategori lama (`deleted_at = NULL`) dan memperbarui atribut visualnya (`icon`, `color`) tanpa melanggar partial unique index.
+
+### B. Realisasi Anggaran Bebas Floating-Point & Zona Waktu
+1. **Aritmatika Basis Points (Basis Points / bps)**:
+   - Menghitung persentase realisasi anggaran `spent_amount / limit_amount` menggunakan floating-point rentan pembulatan biner tidak konsisten.
+   - Seluruh realisasi anggaran dihitung menggunakan aritmatika integer BigInt murni:
+     $$\text{percentage\_bps} = \left\lfloor \frac{\text{spent\_amount} \times 10000}{\text{limit\_amount}} \right\rfloor$$
+     Di mana $10000\text{ bps} = 100.00\%$.
+   - Kolom `percentage` di lapisan API diformat sebagai desimal terstandarisasi $(\text{bps} / 100)$ dengan 2 digit presisi, dan `is_exceeded` aktif saat $\text{spent\_amount} > \text{limit\_amount}$.
+2. **Batas Zona Waktu Terkonfigurasi (`BUDGET_TIMEZONE`) & Interval Setengah Terbuka**:
+   - Realisasi belanja mencakup transaksi pengeluaran aktif (`type = 'expense'`, `status = 'COMPLETED'`, dan `deleted_at IS NULL`) menggunakan parameter zona waktu IANA dari konfigurasi `env.BUDGET_TIMEZONE` (default `'Asia/Jakarta'`) melalui ekspresi PostgreSQL `AT TIME ZONE` (bukan offset `+07` yang di-*hardcode*) dan interval setengah terbuka (*half-open interval*) $[\text{start\_date}, \text{end\_date} + 1\text{ hari})$:
+     $$\text{transaction\_date} \ge (\text{start\_date}::\text{timestamp AT TIME ZONE } tz) \quad \text{AND} \quad \text{transaction\_date} < ((\text{end\_date} + 1)::\text{timestamp AT TIME ZONE } tz)$$
+   - Dengan interval setengah terbuka ini, seluruh transaksi hingga mikrodetik terakhir pada `end_date` (misal `23:59:59.9995`) tetap terhitung tanpa celah pembulatan milidetik `.999`, sementara transaksi tepat pada `00:00:00` hari berikutnya tidak ikut terhitung.
+3. **Pencegahan Tumpang Tindih Anggaran**:
+   - Pengguna dilarang memiliki dua anggaran aktif untuk kategori yang sama pada rentang periode yang saling tumpang tindih (`409 BUDGET_PERIOD_OVERLAP`).
+   - Anggaran mendukung soft-delete (`deleted_at TIMESTAMPTZ NULL`) sehingga histori anggaran lampau tetap terarsip aman.
+
+### C. Lampiran Bukti Transaksi (Proof of Transaction) & Kuota Konkuren
+1. **Validasi Integritas Magic Bytes**:
+   - Header HTTP `Content-Type` dan ekstensi berkas yang dikirim klien dapat dipalsukan (*MIME spoofing*).
+   - Backend memverifikasi byte pembuka (*magic bytes*) buffer berkas secara deterministik untuk tipe MIME yang didukung (`image/jpeg`, `image/png`, `image/webp`, `application/pdf`).
+2. **Batas Kuota 5 Lampiran per Transaksi via Row Locking**:
+   - Untuk mencegah serangan DoS atau pengisian storage liar, setiap transaksi dibatasi maksimal 5 berkas lampiran aktif.
+   - Kuota ditegakkan melalui transaksi database dengan mengunci baris transaksi (`SELECT ... FOR UPDATE`), memeriksa `COUNT(attachments)`, dan menolak penambahan jika kuota penuh (`400 ATTACHMENT_LIMIT_EXCEEDED`).
+3. **Rollback Otomatis Berkas Fisik**:
+   - Jika operasi database gagal atau di-rollback pasca penyimpanan file ke disk, mekanisme kegagalan secara otomatis menghapus (*unlink*) berkas fisik dari filesystem untuk mencegah berkas yatim (*orphan files*).
+
+### D. Jejak Audit Abadi (Tamper-Proof Immutable Audit Trail)
+1. **Immutabilitas Tingkat Database**:
+   - Tabel `activity_logs` diproteksi oleh PostgreSQL trigger `trg_activity_logs_immutable`.
+   - Setiap perintah `UPDATE` atau `DELETE` pada tabel ini ditolak langsung oleh basis data, menjamin audit trail bersifat *append-only* dan tidak dapat diubah oleh siapapun termasuk admin aplikasi.
+2. **Sanitasi & Standarisasi Metadata Audit**:
+   - Seluruh payload metadata yang dicatat di `activity_logs` disaring secara ketat oleh `sanitizeLogMetadata`: kata sandi, token autentikasi, hash, secret, buffer, cookie, header otorisasi, `email` mentah, dan `file_path` internal tidak pernah dicatat.
+   - Nilai moneter di dalam `metadata` wajib menggunakan kunci `snake_case` seragam (`amount`, `new_balance`, `limit_amount`) dan dikonversi sebagai integer `number` aman lewat `toSafeMoneyNumber`.
+3. **Katalog Aksi Terpadu (`ACTIVITY_ACTIONS` — 25 Aksi) & Privasi Login Gagal**:
+   - Katalog `ACTIVITY_ACTIONS` (`apps/api/src/shared/logging/activity-log.helper.ts`) menyatukan seluruh 25 konstanta aksi kanonik (satu nama per peristiwa) dan menegakkan union type `ActivityAction` pada `recordActivity` serta `authRepository.recordActivityLog` sehingga literal di luar katalog gagal kompilasi:
+     - *Authentication (10)*: `USER_REGISTERED`, `USER_LOGIN`, `USER_LOGIN_FAILED`, `TOKEN_REFRESHED`, `TOKEN_REUSE_DETECTED`, `USER_LOGOUT`, `USER_LOGOUT_ALL`, `PASSWORD_CHANGED`, `PASSWORD_RESET_REQUESTED`, `PASSWORD_RESET_COMPLETED`.
+     - *Wallets (2)*: `TOPUP_SIMULATION`, `WALLET_UPDATE`.
+     - *Transfers (2)*: `TRANSFER_SENT`, `TRANSFER_RECEIVED`.
+     - *Transactions (3)*: `TRANSACTION_CREATED`, `TRANSACTION_METADATA_UPDATED`, `TRANSACTION_VOIDED`.
+     - *Categories (3)*: `CATEGORY_CREATED`, `CATEGORY_UPDATED`, `CATEGORY_DELETED`.
+     - *Budgets (3)*: `BUDGET_CREATED`, `BUDGET_UPDATED`, `BUDGET_DELETED`.
+     - *Attachments (2)*: `ATTACHMENT_UPLOADED`, `ATTACHMENT_DELETED`.
+   - **Privasi & Perlindungan Append-Only pada Login Gagal**:
+     - Email tidak terdaftar: hanya dicatat ke structured logger aplikasi (`logger.warn`, **bukan** tabel `activity_logs`) dengan hash SHA-256 dari email ternormalisasi (`email_hash`) dan alamat IP (`reason: 'UNREGISTERED_EMAIL'`).
+     - Kata sandi salah pada akun aktif yang ada: ditulis ke `activity_logs` sebagai `USER_LOGIN_FAILED` dengan `user_id`, IP, dan `metadata: { reason: 'INVALID_CREDENTIALS' }` tanpa email mentah.
+     - Akun nonaktif (`is_active = false`) atau soft-deleted (`deleted_at IS NOT NULL`) yang ada: ditulis ke `activity_logs` sebagai `USER_LOGIN_FAILED` dengan `user_id`, IP, dan `metadata: { reason: 'ACCOUNT_INACTIVE' }` tanpa email mentah.
+4. **Batasan Retensi Log (`activity_logs`)**:
+   - Karena `trg_activity_logs_immutable` memblokir `DELETE` demi keutuhan jejak audit, tabel `activity_logs` tumbuh secara *append-only* dan belum memiliki mekanisme pemangkasan/pengarsipan partisi otomatis (*automated log retention/archival*); hal ini dicatat secara eksplisit sebagai batasan arsitektural di `ADR-059` dan `[OPEN-SEC-06]`.
+

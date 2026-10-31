@@ -452,7 +452,9 @@ describe('Financial Module - Transactions & Void Logic (/api/v1/transactions)', 
 
     expect(voidRes.body.success).toBe(false);
     expect(voidRes.body.error.code).toBe('INSUFFICIENT_BALANCE');
-    expect(voidRes.body.error.message).toContain('Saldo dompet tidak mencukupi untuk membatalkan transaksi pemasukan');
+    expect(voidRes.body.error.message).toContain(
+      'Saldo dompet tidak mencukupi untuk membatalkan transaksi pemasukan'
+    );
 
     // 5. Verify NO partial effects:
     // Wallet balance strictly unchanged at 50,000 IDR (never negative!)
@@ -598,4 +600,3 @@ describe('Financial Module - Transactions & Void Logic (/api/v1/transactions)', 
     expect(res.body.error.code).toBe('LIMIT_EXCEEDED');
   });
 });
-

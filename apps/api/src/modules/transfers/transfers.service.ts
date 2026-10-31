@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import type { CreateTransferInput, TransferResponse } from '@wallet-app/shared';
-import { safeAddMoney, safeSubtractMoney, canonicalStringify } from '@wallet-app/shared';
+import {
+  safeAddMoney,
+  safeSubtractMoney,
+  canonicalStringify,
+  toSafeMoneyNumber,
+} from '@wallet-app/shared';
 import { env } from '../../config/env.js';
 import { pool, withTransaction } from '../../database/index.js';
 import { transfersRepository, type TransferRecord } from './transfers.repository.js';
@@ -8,6 +13,7 @@ import { idempotencyRepository } from './idempotency.repository.js';
 import { walletsRepository } from '../wallets/wallets.repository.js';
 import { NotFoundError, BadRequestError, ConflictError } from '../../shared/errors/index.js';
 import { createPaginationMeta } from '../../shared/utils/query-parser.js';
+import { recordActivity, ACTIVITY_ACTIONS } from '../../shared/logging/activity-log.helper.js';
 
 export function toTransferResponse(record: TransferRecord): TransferResponse {
   return {
@@ -16,7 +22,7 @@ export function toTransferResponse(record: TransferRecord): TransferResponse {
     target_wallet_id: record.target_wallet_id,
     source_wallet_number: record.source_wallet_number || '',
     target_wallet_number: record.target_wallet_number || '',
-    amount: Number(record.amount),
+    amount: toSafeMoneyNumber(record.amount),
     status: record.status,
     note: record.note,
     idempotency_key: record.idempotency_key,
@@ -75,8 +81,12 @@ export class TransfersService {
         }
 
         if (record.status === 'COMPLETED' && record.response_body) {
+          const cached = record.response_body as TransferResponse;
           return {
-            data: record.response_body as TransferResponse,
+            data: {
+              ...cached,
+              amount: toSafeMoneyNumber(cached.amount),
+            },
             isReplay: true,
           };
         }
@@ -183,23 +193,33 @@ export class TransfersService {
         balanceAfter: newTargetBalance,
       });
 
-      // 12. Audit log
-      await client.query(
-        `INSERT INTO activity_logs (user_id, action, entity, entity_id, metadata, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          userId,
-          'TRANSFER_SENT',
-          'transfers',
-          transferRecord.id,
-          JSON.stringify({
-            amount: input.amount,
-            target_wallet_number: input.target_wallet_number,
-            new_balance: newSourceBalance.toString(),
-          }),
-          ip,
-        ]
-      );
+      // 12. Audit logs (sender & receiver)
+      const safeTransferAmount = toSafeMoneyNumber(transferAmount);
+      await recordActivity(client, {
+        userId,
+        action: ACTIVITY_ACTIONS.TRANSFER_SENT,
+        entity: 'transfers',
+        entityId: transferRecord.id,
+        metadata: {
+          amount: safeTransferAmount,
+          target_wallet_number: input.target_wallet_number,
+          new_balance: toSafeMoneyNumber(newSourceBalance),
+        },
+        ipAddress: ip,
+      });
+
+      await recordActivity(client, {
+        userId: lockedTarget.user_id,
+        action: ACTIVITY_ACTIONS.TRANSFER_RECEIVED,
+        entity: 'transfers',
+        entityId: transferRecord.id,
+        metadata: {
+          amount: safeTransferAmount,
+          source_wallet_number: lockedSource.wallet_number,
+          new_balance: toSafeMoneyNumber(newTargetBalance),
+        },
+        ipAddress: null,
+      });
 
       const responseData: TransferResponse = {
         id: transferRecord.id,
@@ -207,7 +227,7 @@ export class TransfersService {
         target_wallet_id: lockedTarget.id,
         source_wallet_number: lockedSource.wallet_number,
         target_wallet_number: lockedTarget.wallet_number,
-        amount: Number(transferRecord.amount),
+        amount: toSafeMoneyNumber(transferRecord.amount),
         status: transferRecord.status,
         note: transferRecord.note,
         idempotency_key: transferRecord.idempotency_key,

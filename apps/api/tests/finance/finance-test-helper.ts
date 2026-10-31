@@ -1,6 +1,6 @@
 import request from 'supertest';
 import type { Express } from 'express';
-import type { WalletResponse } from '@wallet-app/shared';
+import { toSafeMoneyNumber, type WalletResponse } from '@wallet-app/shared';
 
 export interface TestUserSession {
   user: {
@@ -59,9 +59,9 @@ export async function createAuthenticatedUser(
 
   // 4. Optionally fund initial balance via topup simulation (chunked if exceeding per-tx cap)
   if (options?.initialBalance && options.initialBalance > 0) {
-    let remaining = options.initialBalance;
+    let remaining = toSafeMoneyNumber(options.initialBalance);
     while (remaining > 0) {
-      const chunk = Math.min(remaining, 50_000_000);
+      const chunk = toSafeMoneyNumber(Math.min(remaining, 50_000_000));
       const topupRes = await request(app)
         .post('/api/v1/wallets/my/topup')
         .set('Authorization', `Bearer ${accessToken}`)
